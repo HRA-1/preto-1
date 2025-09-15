@@ -6,9 +6,13 @@
     "memory": "512",
     "executionRoleArn": "arn:aws:iam::201023212334:role/ecsTaskExecutionRole",
     "taskRoleArn": "arn:aws:iam::201023212334:role/ecsTaskRole",
+    "runtimePlatform": {
+        "cpuArchitecture": "ARM64",
+        "operatingSystemFamily": "LINUX"
+    },
     "containerDefinitions": [
         {
-            "name": "preto-streamlit-container",
+            "name": "preto-streamlit-app-container",
             "image": "201023212334.dkr.ecr.ap-northeast-2.amazonaws.com/preto-streamlit-app:latest",
             "portMappings": [
                 {
