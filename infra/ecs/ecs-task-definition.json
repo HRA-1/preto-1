@@ -2,8 +2,8 @@
     "family": "preto-streamlit-app",
     "networkMode": "awsvpc",
     "requiresCompatibilities": ["FARGATE"],
-    "cpu": "256",
-    "memory": "512",
+    "cpu": "2048",
+    "memory": "4096",
     "executionRoleArn": "arn:aws:iam::201023212334:role/ecsTaskExecutionRole",
     "taskRoleArn": "arn:aws:iam::201023212334:role/ecsTaskRole",
     "runtimePlatform": {

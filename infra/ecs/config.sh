@@ -27,9 +27,9 @@ ECS_SERVICE_NAME="${PROJECT_NAME}-${APP_NAME}-service"
 ECS_TASK_FAMILY="${PROJECT_NAME}-${APP_NAME}"
 ECS_CONTAINER_NAME="${PROJECT_NAME}-${APP_NAME}-container"
 
-# 컴퓨팅 리소스
-ECS_CPU="256"       # 0.25 vCPU
-ECS_MEMORY="512"    # 512 MB
+# 컴퓨팅 리소스 (고성능 설정)
+ECS_CPU="2048"      # 2 vCPU
+ECS_MEMORY="4096"   # 4 GB
 ECS_DESIRED_COUNT="1"
 
 # 네트워킹
