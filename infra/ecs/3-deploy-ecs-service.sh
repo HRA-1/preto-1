@@ -54,6 +54,10 @@ cat > "$SCRIPT_DIR/ecs-task-definition-generated.json" << EOF
     "memory": "$ECS_MEMORY",
     "executionRoleArn": "$TASK_EXECUTION_ROLE_ARN",
     "taskRoleArn": "$TASK_ROLE_ARN",
+    "runtimePlatform": {
+        "cpuArchitecture": "ARM64",
+        "operatingSystemFamily": "LINUX"
+    },
     "containerDefinitions": [
         {
             "name": "$ECS_CONTAINER_NAME",
@@ -73,7 +77,12 @@ cat > "$SCRIPT_DIR/ecs-task-definition-generated.json" << EOF
                     "awslogs-stream-prefix": "ecs"
                 }
             },
-            "environment": []
+            "environment": [
+                {
+                    "name": "ENVIRONMENT",
+                    "value": "prod"
+                }
+            ]
         }
     ]
 }
