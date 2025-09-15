@@ -29,7 +29,12 @@
                     "awslogs-stream-prefix": "ecs"
                 }
             },
-            "environment": []
+            "environment": [
+                {
+                    "name": "ENVIRONMENT",
+                    "value": "prod"
+                }
+            ]
         }
     ]
 }

@@ -26,7 +26,7 @@ COPY jupyter_notebook_config.py /root/.jupyter/
 EXPOSE 8501 8888
 
 # Make scripts executable
-RUN chmod +x scripts/start.sh scripts/sync-markdown.sh
+RUN chmod +x scripts/start.sh scripts/start-dev.sh scripts/start-prod.sh scripts/sync-markdown.sh
 
 # Command to run the app
 CMD ["./scripts/start.sh"]

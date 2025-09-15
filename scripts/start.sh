@@ -1,24 +1,28 @@
 #!/bin/bash
 
-# Get script directory and project root
+# Environment-aware start script
+# Detects environment and delegates to appropriate start script
+
+# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Set the PYTHONPATH to include the src directory
-export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}/src"
+# Detect environment (default: development)
+ENVIRONMENT="${ENVIRONMENT:-dev}"
 
-# Sync markdown files before starting services
-echo "🔄 Syncing markdown files..."
-if [ -f "${SCRIPT_DIR}/sync-markdown.sh" ]; then
-    cd "${PROJECT_ROOT}" && ./scripts/sync-markdown.sh
-else
-    echo "⚠️  Markdown sync script not found, skipping..."
-fi
+echo "🔍 Detected environment: $ENVIRONMENT"
 
-# Start Jupyter Notebook using the config file
-cd "${PROJECT_ROOT}"
-jupyter notebook --config=jupyter_notebook_config.py &
-
-# Start Streamlit app
-streamlit run src/app.py --server.port=8501 --server.address=0.0.0.0
+case "$ENVIRONMENT" in
+    "dev"|"development")
+        echo "🔄 Delegating to development start script..."
+        exec "${SCRIPT_DIR}/start-dev.sh"
+        ;;
+    "prod"|"production")
+        echo "🔄 Delegating to production start script..."
+        exec "${SCRIPT_DIR}/start-prod.sh"
+        ;;
+    *)
+        echo "⚠️  Unknown environment '$ENVIRONMENT', defaulting to development..."
+        exec "${SCRIPT_DIR}/start-dev.sh"
+        ;;
+esac
 
