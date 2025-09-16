@@ -130,3 +130,7 @@ dmypy.json
 
 # ETC
 .DS_Store
+
+# Infrastructure temporary files
+infra/ecs/infrastructure.env
+infra/ecs/ecs-task-definition-generated.json
