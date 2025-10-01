@@ -100,6 +100,120 @@ def _get_current_employee_snapshot():
     
     return snapshot_df
 
+@st.cache_data
+def _get_monthly_employee_state_df():
+    """
+    과거부터 현재까지 모든 직원의 '모든 월'에 대한 상태 정보(소속, 직무, 직위, 나이 등)를
+    계산하여, 시계열 분석의 기반이 되는 마스터 데이터프레임을 생성합니다.
+    결과는 캐싱되어 반복 계산을 방지합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    career_info_df = base_data["career_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+
+    # 2. 헬퍼 데이터 및 정렬된 이력 테이블 준비
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+
+    dept_info_sorted = department_info_df.sort_values('DEP_APP_START_DATE')
+    job_info_sorted = job_info_df.sort_values('JOB_APP_START_DATE')
+    pos_info_sorted = position_info_df.sort_values('GRADE_START_DATE')
+    contract_info_sorted = contract_info_df.sort_values('CONT_START_DATE')
+    salary_info_sorted = salary_contract_info_df.sort_values('SAL_START_DATE')
+    region_info_sorted = region_info_df.sort_values('REG_APP_START_DATE')
+
+    # 3. 시간의 뼈대(Scaffold) 생성 및 재직 기간 필터링
+    start_month = emp_df['IN_DATE'].min().to_period('M').to_timestamp()
+    end_month = pd.to_datetime(datetime.datetime.now()).to_period('M').to_timestamp()
+    monthly_periods = pd.date_range(start=start_month, end=end_month, freq='MS')
+
+    scaffold_df = pd.DataFrame(
+        [(emp_id, period) for emp_id in emp_df['EMP_ID'].unique() for period in monthly_periods],
+        columns=['EMP_ID', 'PERIOD_DT']
+    )
+    analysis_df = pd.merge(scaffold_df, emp_df, on='EMP_ID', how='left')
+    analysis_df['PERIOD_END_DT'] = analysis_df['PERIOD_DT'] + pd.offsets.MonthEnd(0)
+    analysis_df = analysis_df[
+        (analysis_df['IN_DATE'] <= analysis_df['PERIOD_END_DT']) &
+        (analysis_df['OUT_DATE'].isnull() | (analysis_df['OUT_DATE'] >= analysis_df['PERIOD_DT']))
+    ].copy()
+
+    # 4. 각 월별로 직원의 모든 속성 정보 부여 (merge_asof)
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), dept_info_sorted, left_on='PERIOD_DT', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), job_info_sorted, left_on='PERIOD_DT', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), pos_info_sorted, left_on='PERIOD_DT', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), contract_info_sorted, left_on='PERIOD_DT', right_on='CONT_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), salary_info_sorted, left_on='PERIOD_DT', right_on='SAL_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df.sort_values('PERIOD_DT'), region_info_sorted, left_on='PERIOD_DT', right_on='REG_APP_START_DATE', by='EMP_ID', direction='backward')
+
+    # 5. 이름(Label) 정보 추가
+    parent_info = analysis_df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
+    analysis_df = pd.concat([analysis_df, parent_info.set_index(analysis_df.index)], axis=1)
+    analysis_df = pd.merge(analysis_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID', how='left')
+    analysis_df['JOB_L1_NAME'] = analysis_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    
+    # 6. 동적 속성(나이, 근속년수 등) 및 그룹(Bin) 정보 계산
+    analysis_df['AGE'] = analysis_df.apply(lambda row: calculate_age(row['PERSONAL_ID'], row['PERIOD_END_DT']), axis=1)
+    analysis_df['TENURE_YEARS'] = (analysis_df['PERIOD_END_DT'] - analysis_df['IN_DATE']).dt.days / 365.25
+    
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    analysis_df = pd.merge(analysis_df, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    analysis_df['TOTAL_PRIOR_CAREER_YEARS'] = analysis_df['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    analysis_df['TOTAL_CAREER_YEARS'] = analysis_df['TENURE_YEARS'] + analysis_df['TOTAL_PRIOR_CAREER_YEARS']
+    
+    # 연봉 환산
+    analysis_df['ANNUAL_SALARY'] = analysis_df['SAL_AMOUNT']
+    analysis_df.loc[analysis_df['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = analysis_df['SAL_AMOUNT'] * 12
+    analysis_df.loc[analysis_df['PAY_CATEGORY'] == '주급', 'ANNUAL_SALARY'] = analysis_df['SAL_AMOUNT'] * 52
+    analysis_df.loc[analysis_df['PAY_CATEGORY'] == '일급', 'ANNUAL_SALARY'] = analysis_df['SAL_AMOUNT'] * 250 # 일반적인 연간 근무일수(약 250일) 기준
+    analysis_df.loc[analysis_df['PAY_CATEGORY'] == '시급', 'ANNUAL_SALARY'] = analysis_df['SAL_AMOUNT'] * 2080 # 통상시급 계산 기준 (주 40시간 * 52주)
+
+    # 지역 카테고리
+    region_names = region_df.set_index('REG_ID')['REG_NAME'].to_dict()
+    analysis_df['REG_NAME'] = analysis_df['REG_ID'].map(region_names)
+    analysis_df['REGION_CATEGORY'] = '해외 현장'
+    analysis_df.loc[analysis_df['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'
+    analysis_df.loc[analysis_df['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+    
+    # 성별
+    analysis_df['GENDER'] = analysis_df['GENDER'].map({'M': '남성', 'F': '여성'})
+
+    # 7. 필터링을 위한 구간(Bin) 정보 추가
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    analysis_df['AGE_BIN'] = pd.cut(analysis_df['AGE'], bins=age_bins, labels=age_labels)
+    
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    analysis_df['CAREER_BIN'] = pd.cut(analysis_df['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    analysis_df['SALARY_BIN'] = pd.cut(analysis_df['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 8. 최종 정리 및 반환
+    # 필요한 컬럼만 선택하여 메모리 관리
+    final_cols = [
+        'EMP_ID', 'PERIOD_DT', 'IN_DATE', 'OUT_DATE',
+        'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME', 'GENDER',
+        'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+    ]
+    analysis_df = analysis_df[final_cols].dropna(subset=['DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME'])
+    
+    return analysis_df
+
 # --------------------------------------------------------------------------
 # --- Proposal별 데이터 준비 함수 ---
 # --------------------------------------------------------------------------
