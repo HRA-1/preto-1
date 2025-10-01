@@ -18,19 +18,23 @@ from services.helpers.utils import (
 @st.cache_data
 def _get_current_employee_snapshot():
     """
-    현재 시점의 재직자(Y)에 대한 모든 최신 정보(소속, 직위, 직무 등)를 결합한
-    기본 분석 데이터프레임을 생성합니다. 여러 분석에서 재사용됩니다.
+    현재 시점의 재직자(Y)에 대한 모든 최신 정보(소속, 직위, 직무, 성별, 연령,
+    근속년수, 총 경력, 연봉 등)를 결합하여, 모든 글로벌 필터의 기준이 될 수 있는
+    상세한 스냅샷 데이터프레임을 생성합니다.
     """
+    # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
     emp_df = base_data["emp_df"]
     position_info_df = base_data["position_info_df"]
     department_info_df = base_data["department_info_df"]
     job_info_df = base_data["job_info_df"]
+    career_info_df = base_data["career_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
     position_df = base_data["position_df"]
     job_df = base_data["job_df"]
     department_df = base_data["department_df"]
-    
-    # Helper data from master tables
+
+    # 헬퍼 데이터 준비
     job_df_indexed = job_df.set_index('JOB_ID')
     parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
     job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
@@ -38,35 +42,63 @@ def _get_current_employee_snapshot():
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
     dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
 
-    # 1. 현재 재직자 필터링 및 기본 정보 계산
-    current_emps_df = emp_df[emp_df['CURRENT_EMP_YN'] == 'Y'].copy()
-    current_emps_df['AGE'] = current_emps_df['PERSONAL_ID'].apply(calculate_age)
-    current_emps_df['TENURE_YEARS'] = current_emps_df['DURATION'] / 365.25
+    # 2. 현재 재직자 필터링 및 기본 정보 계산
+    snapshot_df = emp_df[emp_df['CURRENT_EMP_YN'] == 'Y'].copy()
+    snapshot_df['AGE'] = snapshot_df['PERSONAL_ID'].apply(calculate_age)
+    snapshot_df['TENURE_YEARS'] = snapshot_df['DURATION'] / 365.25
 
-    # 2. 현재 소속, 직위, 직무 정보 가져오기
+    # 3. 현재 소속, 직위, 직무, 연봉 정보 가져오기
     current_depts = department_info_df[department_info_df['DEP_APP_END_DATE'].isnull()][['EMP_ID', 'DEP_ID']]
     current_positions = position_info_df[position_info_df['GRADE_END_DATE'].isnull()][['EMP_ID', 'POSITION_ID', 'GRADE_ID']]
     current_jobs = job_info_df[job_info_df['JOB_APP_END_DATE'].isnull()][['EMP_ID', 'JOB_ID']]
+    current_salaries = salary_contract_info_df[salary_contract_info_df['SAL_END_DATE'].isnull()][['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']]
+    
+    # 4. 과거 총 경력 계산
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum().reset_index()
+    prior_career_summary['TOTAL_PRIOR_CAREER_YEARS'] = prior_career_summary['CAREER_DURATION'] / 365.25
 
-    # 3. 모든 정보 병합
-    analysis_df = pd.merge(current_emps_df, current_depts, on='EMP_ID', how='left')
-    analysis_df = pd.merge(analysis_df, current_positions, on='EMP_ID', how='left')
-    analysis_df = pd.merge(analysis_df, current_jobs, on='EMP_ID', how='left')
+    # 5. 모든 정보 병합
+    snapshot_df = pd.merge(snapshot_df, current_depts, on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_positions, on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_jobs, on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_salaries, on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, prior_career_summary[['EMP_ID', 'TOTAL_PRIOR_CAREER_YEARS']], on='EMP_ID', how='left')
+    snapshot_df['TOTAL_PRIOR_CAREER_YEARS'] = snapshot_df['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    
+    # 6. 이름 정보 등 추가 (Labeling)
+    parent_info = snapshot_df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
+    snapshot_df = pd.concat([snapshot_df, parent_info.set_index(snapshot_df.index)], axis=1)
+    snapshot_df = pd.merge(snapshot_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID', how='left')
+    snapshot_df['JOB_L1_NAME'] = snapshot_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    snapshot_df['JOB_L2_NAME'] = snapshot_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
 
-    # 4. 상위 조직, 직위/직무 이름 등 추가
-    parent_info = analysis_df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
-    analysis_df = pd.concat([analysis_df, parent_info.set_index(analysis_df.index)], axis=1)
+    # 7. 필터링을 위한 구간(Bin) 정보 추가
+    # 연령대
+    age_bins = [-1, 19, 29, 39, 49, 150]
+    age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    snapshot_df['AGE_BIN'] = pd.cut(snapshot_df['AGE'], bins=age_bins, labels=age_labels)
+
+    # 근속년수
+    tenure_bins_agg = [-np.inf, 3, 7, np.inf]
+    tenure_labels_agg = ['3년 이하', '3년초과~7년이하', '7년 초과']
+    snapshot_df['TENURE_GROUP'] = pd.cut(snapshot_df['TENURE_YEARS'], bins=tenure_bins_agg, labels=tenure_labels_agg)
+
+    # 총 경력연차
+    snapshot_df['TOTAL_CAREER_YEARS'] = snapshot_df['TENURE_YEARS'] + snapshot_df['TOTAL_PRIOR_CAREER_YEARS']
+    career_bins = [-1, 1, 3, 7, 15, 150]
+    career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    snapshot_df['CAREER_BIN'] = pd.cut(snapshot_df['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     
-    analysis_df = pd.merge(analysis_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID', how='left')
+    # 연봉 구간
+    snapshot_df['ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] # 현재 연봉 기준만 있다고 가정
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]
+    salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    snapshot_df['SALARY_BIN'] = pd.cut(snapshot_df['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 8. 최종 정리
+    snapshot_df['GENDER'] = snapshot_df['GENDER'].map({'M': '남성', 'F': '여성'})
     
-    analysis_df['JOB_L1_NAME'] = analysis_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
-    analysis_df['JOB_L2_NAME'] = analysis_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
-    
-    # 5. 최종 정리
-    analysis_df['OFFICE_NAME'] = analysis_df['OFFICE_NAME'].fillna('(Division 직속)')
-    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'OFFICE_NAME', 'POSITION_NAME', 'JOB_L1_NAME', 'JOB_L2_NAME'])
-    
-    return analysis_df
+    return snapshot_df
 
 # --------------------------------------------------------------------------
 # --- Proposal별 데이터 준비 함수 ---
