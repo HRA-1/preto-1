@@ -221,39 +221,79 @@ def _get_monthly_employee_state_df():
 # 여기에 각 proposal에 필요한 데이터 준비 함수들을 추가합니다.
 
 @st.cache_data
-def prepare_basic_proposal_data():
+def prepare_basic_proposal_data(
+    # --- 글로벌 필터 값들을 인자로 받음 ---
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
     """
-    Proposal 0 (기본 현황판) 시리즈 분석에 필요한 모든 데이터를 사전 가공합니다.
-    월별 직원 상태 마스터 테이블을 기반으로, 모든 차원의 입사/퇴사/총원 데이터를 집계합니다.
+    글로벌 필터가 적용된 월별 직원 상태 데이터를 기반으로,
+    basic_proposal(인원 변동 현황)에 필요한 모든 차원의 데이터를 집계하여 반환합니다.
     """
-    # 1. 모든 직원의 월별 상태가 담긴 마스터 테이블을 단 한 줄로 불러오기 (캐싱됨)
+    # 1. 모든 직원의 '월별 상태' 마스터 테이블을 불러옵니다. (캐싱됨)
     monthly_state_df = _get_monthly_employee_state_df()
 
-    # 2. 모든 필터 기준 정의
-    data_bundle = {}
-    filter_dimensions = {
-        'DIVISION_NAME': '부서별', 'JOB_L1_NAME': '직무별', 'POSITION_NAME': '직위직급별',
-        'GENDER': '성별', 'AGE_BIN': '연령별', 'CAREER_BIN': '경력연차별',
-        'SALARY_BIN': '연봉구간별', 'REGION_CATEGORY': '지역별', 'CONT_CATEGORY': '계약별'
-    }
-    
-    # 3. '전체' 및 각 필터 기준에 대해 데이터 집계
-    all_dims = {'전체': None, **{ui_name: col_name for col_name, ui_name in filter_dimensions.items()}}
+    # 2. 전달받은 글로벌 필터 값으로 데이터 사전 필터링
+    filtered_df = monthly_state_df.copy()
+    if filter_division != '전체':
+        filtered_df = filtered_df[filtered_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체':
+        filtered_df = filtered_df[filtered_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체':
+        filtered_df = filtered_df[filtered_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체':
+        filtered_df = filtered_df[filtered_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체':
+        filtered_df = filtered_df[filtered_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체':
+        filtered_df = filtered_df[filtered_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체':
+        filtered_df = filtered_df[filtered_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체':
+        filtered_df = filtered_df[filtered_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체':
+        filtered_df = filtered_df[filtered_df['CONT_CATEGORY'] == filter_contract]
 
-    for ui_name, col_name in all_dims.items():
+    # 3. 필터링된 데이터를 기반으로 모든 차원에 대해 데이터 집계
+    data_bundle = {}
+    
+    # 분석할 차원 목록 (한글 UI 이름과 데이터프레임 컬럼명 매핑)
+    dimensions = {
+        '부서별': 'DIVISION_NAME', '직무별': 'JOB_L1_NAME', '직위직급별': 'POSITION_NAME',
+        '성별': 'GENDER', '연령별': 'AGE_BIN', '경력연차별': 'CAREER_BIN',
+        '연봉구간별': 'SALARY_BIN', '지역별': 'REGION_CATEGORY', '계약별': 'CONT_CATEGORY'
+    }
+
+    # '전체' 및 각 차원에 대해 루프를 돌며 집계
+    all_dims_to_process = {'전체': None, **{ui_name: col_name for ui_name, col_name in dimensions.items()}}
+
+    for ui_name, col_name in all_dims_to_process.items():
         grouping_cols = ['PERIOD_DT']
         if col_name:
             grouping_cols.append(col_name)
+        
+        # 필터링된 데이터에 해당 컬럼이 없으면 건너뜀
+        if col_name and col_name not in filtered_df.columns:
+            continue
 
         # 총원 집계
-        headcount_df = monthly_state_df.groupby(grouping_cols, observed=False).size().reset_index(name='HEADCOUNT')
+        headcount_df = filtered_df.groupby(grouping_cols, observed=False).size().reset_index(name='HEADCOUNT')
+        if headcount_df.empty: # 해당 필터 조합에 데이터가 없으면 빈 결과를 저장하고 다음으로
+            data_bundle[ui_name] = {'monthly': pd.DataFrame(), 'quarterly': pd.DataFrame()}
+            continue
+
+        # 입사자/퇴사자 집계
+        hires_df = filtered_df[filtered_df['IN_DATE'].dt.to_period('M') == filtered_df['PERIOD_DT'].dt.to_period('M')]
+        leavers_df = filtered_df[filtered_df['OUT_DATE'].dt.to_period('M') == filtered_df['PERIOD_DT'].dt.to_period('M')]
         
-        # 입사자 집계
-        hires_df = monthly_state_df[monthly_state_df['IN_DATE'].dt.to_period('M') == monthly_state_df['PERIOD_DT'].dt.to_period('M')]
         hires_summary = hires_df.groupby(grouping_cols, observed=False).size().reset_index(name='NEW_HIRES')
-        
-        # 퇴사자 집계
-        leavers_df = monthly_state_df[monthly_state_df['OUT_DATE'].dt.to_period('M') == monthly_state_df['PERIOD_DT'].dt.to_period('M')]
         leavers_summary = leavers_df.groupby(grouping_cols, observed=False).size().reset_index(name='LEAVERS')
         
         # 월별 데이터 병합
@@ -277,79 +317,4 @@ def prepare_basic_proposal_data():
     return data_bundle
 
 
-
-@st.cache_data
-def prepare_proposal_04_data():
-    """
-    Proposal 04 (조직 경험 자산 현황) 분석에 필요한 데이터를 사전 가공합니다.
-    - 부서별, 직무별, 직위직급별 분석 데이터를 모두 포함합니다.
-    """
-    snapshot_df = _get_current_employee_snapshot()
-    snapshot_df['TENURE_BIN'] = pd.cut(
-        snapshot_df['TENURE_YEARS'], 
-        bins=range(0, int(snapshot_df['TENURE_YEARS'].max()) + 2), 
-        right=False, 
-        labels=range(0, int(snapshot_df['TENURE_YEARS'].max()) + 1)
-    )
-    
-    # 부서별 집계
-    div_summary = snapshot_df.groupby(['DIVISION_NAME', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-    office_summary = snapshot_df.groupby(['DIVISION_NAME', 'OFFICE_NAME', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-    
-    # 직무별 집계
-    job_l1_summary = snapshot_df.groupby(['JOB_L1_NAME', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-    job_l2_summary = snapshot_df.groupby(['JOB_L1_NAME', 'JOB_L2_NAME', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-
-    # 직위직급별 집계
-    pos_summary = snapshot_df.groupby(['POSITION_NAME', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-    grade_summary = snapshot_df.groupby(['POSITION_NAME', 'GRADE_ID', 'TENURE_BIN'], observed=False).size().reset_index(name='COUNT')
-
-    # 피벗 테이블용 집계
-    tenure_bins_agg = [-np.inf, 3, 7, np.inf]
-    tenure_labels_agg = ['3년 이하', '3년초과~7년이하', '7년 초과']
-    snapshot_df['TENURE_GROUP'] = pd.cut(snapshot_df['TENURE_YEARS'], bins=tenure_bins_agg, labels=tenure_labels_agg)
-    
-    return {
-        "snapshot_df": snapshot_df,
-        "div_summary": div_summary,
-        "office_summary": office_summary,
-        "job_l1_summary": job_l1_summary,
-        "job_l2_summary": job_l2_summary,
-        "pos_summary": pos_summary,
-        "grade_summary": grade_summary
-    }
-
-
-@st.cache_data
-def prepare_proposal_05_data():
-    """
-    Proposal 05 (연간 퇴사율) 분석에 필요한 데이터를 사전 가공합니다.
-    - 부서별, 직무별, 직위직급별 분석 데이터를 모두 포함합니다.
-    """
-    base_data = load_all_base_data()
-    emp_df = base_data["emp_df"]
-    department_info_df = base_data["department_info_df"]
-    job_info_df = base_data["job_info_df"]
-    position_info_df = base_data["position_info_df"]
-    
-    # ... (proposal_05_부서별.py 등에서 사용했던 연도별 루프 및 계산 로직) ...
-    # 이 부분은 코드가 매우 길어지므로, 실제 구현 시에는
-    # proposal_05_부서별, 직무별, 직위직급별 코드의 데이터 준비 로직을
-    # 여기에 통합하여 하나의 거대한 'turnover_records'를 생성하는 방식으로 구현합니다.
-    # 지금은 개념적 예시로 간단히 표현합니다.
-
-    # 이 함수가 최종적으로 반환해야 할 데이터 형태 (예시)
-    analysis_df = pd.DataFrame() # 연도별, 그룹타입별, 그룹명별, 퇴사율이 담긴 long-form 데이터
-    overall_turnover_df = pd.DataFrame() # 연도별 전사 평균 퇴사율 데이터
-    
-    # 실제로는 위 두 DataFrame을 proposal_05 시리즈 코드의 로직을 통합하여 계산해야 합니다.
-    
-    return {
-        "analysis_df": analysis_df,
-        "overall_turnover_df": overall_turnover_df
-    }
-
-# --- (이하 생략) ---
-# 위와 같은 패턴으로 prepare_proposal_00_data, prepare_proposal_01_data 등
-# 모든 proposal에 대한 데이터 준비 함수를 이곳에 추가합니다.
 # 각 함수의 결과는 @st.cache_data로 캐싱되어야 합니다.
