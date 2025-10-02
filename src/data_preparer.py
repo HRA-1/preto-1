@@ -219,8 +219,64 @@ def _get_monthly_employee_state_df():
 # --------------------------------------------------------------------------
 
 # 여기에 각 proposal에 필요한 데이터 준비 함수들을 추가합니다.
-# 예시로 proposal 04 (근속년수 분포)와 proposal 05 (퇴사율) 데이터 준비 함수를 작성합니다.
-# 나머지 proposal들도 이와 유사한 패턴으로 함수를 추가해나갈 수 있습니다.
+
+@st.cache_data
+def prepare_basic_proposal_data():
+    """
+    Proposal 0 (기본 현황판) 시리즈 분석에 필요한 모든 데이터를 사전 가공합니다.
+    월별 직원 상태 마스터 테이블을 기반으로, 모든 차원의 입사/퇴사/총원 데이터를 집계합니다.
+    """
+    # 1. 모든 직원의 월별 상태가 담긴 마스터 테이블을 단 한 줄로 불러오기 (캐싱됨)
+    monthly_state_df = _get_monthly_employee_state_df()
+
+    # 2. 모든 필터 기준 정의
+    data_bundle = {}
+    filter_dimensions = {
+        'DIVISION_NAME': '부서별', 'JOB_L1_NAME': '직무별', 'POSITION_NAME': '직위직급별',
+        'GENDER': '성별', 'AGE_BIN': '연령별', 'CAREER_BIN': '경력연차별',
+        'SALARY_BIN': '연봉구간별', 'REGION_CATEGORY': '지역별', 'CONT_CATEGORY': '계약별'
+    }
+    
+    # 3. '전체' 및 각 필터 기준에 대해 데이터 집계
+    all_dims = {'전체': None, **{ui_name: col_name for col_name, ui_name in filter_dimensions.items()}}
+
+    for ui_name, col_name in all_dims.items():
+        grouping_cols = ['PERIOD_DT']
+        if col_name:
+            grouping_cols.append(col_name)
+
+        # 총원 집계
+        headcount_df = monthly_state_df.groupby(grouping_cols, observed=False).size().reset_index(name='HEADCOUNT')
+        
+        # 입사자 집계
+        hires_df = monthly_state_df[monthly_state_df['IN_DATE'].dt.to_period('M') == monthly_state_df['PERIOD_DT'].dt.to_period('M')]
+        hires_summary = hires_df.groupby(grouping_cols, observed=False).size().reset_index(name='NEW_HIRES')
+        
+        # 퇴사자 집계
+        leavers_df = monthly_state_df[monthly_state_df['OUT_DATE'].dt.to_period('M') == monthly_state_df['PERIOD_DT'].dt.to_period('M')]
+        leavers_summary = leavers_df.groupby(grouping_cols, observed=False).size().reset_index(name='LEAVERS')
+        
+        # 월별 데이터 병합
+        monthly_summary = pd.merge(headcount_df, hires_summary, on=grouping_cols, how='left')
+        monthly_summary = pd.merge(monthly_summary, leavers_summary, on=grouping_cols, how='left')
+        monthly_summary[['NEW_HIRES', 'LEAVERS']] = monthly_summary[['NEW_HIRES', 'LEAVERS']].fillna(0).astype(int)
+        
+        # 분기별 데이터 생성
+        monthly_summary['QUARTER'] = monthly_summary['PERIOD_DT'].dt.to_period('Q')
+        quarterly_summary = monthly_summary.groupby(['QUARTER'] + ([col_name] if col_name else []), observed=False).agg(
+            NEW_HIRES=('NEW_HIRES', 'sum'),
+            LEAVERS=('LEAVERS', 'sum'),
+            HEADCOUNT=('HEADCOUNT', 'last')
+        ).reset_index()
+        
+        data_bundle[ui_name] = {
+            'monthly': monthly_summary,
+            'quarterly': quarterly_summary,
+        }
+            
+    return data_bundle
+
+
 
 @st.cache_data
 def prepare_proposal_04_data():
