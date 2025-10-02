@@ -214,6 +214,53 @@ def _get_monthly_employee_state_df():
     
     return analysis_df
 
+# --- 내부 헬퍼 함수: 코호트 데이터 생성 ---
+# 이 함수는 prepare_proposal_06_data 내부 또는 외부에 위치할 수 있습니다.
+# 재사용성을 위해 외부에 두고 @st.cache_data를 붙이는 것이 더 효율적일 수 있습니다.
+@st.cache_data
+def _create_cohort_data(df):
+    """
+    주어진 데이터프레임(EMP_ID, IN_DATE, OUT_DATE 컬럼 필요)에 대한 
+    코호트 잔존율 매트릭스를 생성합니다.
+    """
+    df = df.copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    today = datetime.datetime.now()
+    df['HIRE_YEAR'] = df['IN_DATE'].dt.year
+    df['TENURE_YEAR_INDEX'] = np.floor(
+        (df['OUT_DATE'].fillna(pd.to_datetime(today)) - df['IN_DATE']).dt.days / 365.25
+    ).astype(int)
+
+    cohort_data_list = []
+    for _, row in df.iterrows():
+        if pd.isna(row['HIRE_YEAR']) or pd.isna(row['TENURE_YEAR_INDEX']): continue
+        for i in range(row['TENURE_YEAR_INDEX'] + 1):
+            cohort_data_list.append({
+                'HIRE_YEAR': int(row['HIRE_YEAR']), 'TENURE_YEAR': i, 'EMP_ID': row['EMP_ID']
+            })
+
+    if not cohort_data_list: return pd.DataFrame()
+
+    cohort_df = pd.DataFrame(cohort_data_list)
+    cohort_counts = cohort_df.groupby(['HIRE_YEAR', 'TENURE_YEAR'])['EMP_ID'].nunique().unstack()
+    
+    if cohort_counts.empty or 0 not in cohort_counts.columns: return pd.DataFrame()
+
+    cohort_sizes = cohort_counts.iloc[:, 0]
+    cohort_retention = cohort_counts.divide(cohort_sizes, axis=0) * 100
+
+    current_year = today.year
+    for hire_year in cohort_retention.index:
+        max_completed_tenure = current_year - hire_year - 1
+        if max_completed_tenure < 0:
+             cohort_retention.loc[hire_year, cohort_retention.columns > 0] = np.nan
+        else:
+             cohort_retention.loc[hire_year, cohort_retention.columns > max_completed_tenure] = np.nan
+
+    return cohort_retention
+
 # --------------------------------------------------------------------------
 # --- Proposal별 데이터 준비 함수 ---
 # --------------------------------------------------------------------------
@@ -880,4 +927,643 @@ def prepare_proposal_05_data(
     overall_turnover_df = pd.DataFrame(overall_turnover_records)
 
     return {"analysis_df": analysis_df, "overall_turnover_df": overall_turnover_df}
+
+@st.cache_data
+def prepare_proposal_06_data(
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
+    """
+    제안 6: 입사 연도별 잔존율 코호트 분석
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 부서/직무/직위별 코호트 데이터를 생성합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    career_info_df = base_data["career_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+    division_order = base_data["department_table"].division_order
+    job_l1_order = base_data["job_table"].job_l1_order
+    position_order = base_data["position_table"].position_order
+
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
+    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
+    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    
+    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
+    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+
+    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+
+    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 3. 글로벌 필터 적용
+    filtered_emps_df = emp_details.copy()
+    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
+    
+    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    if len(filtered_emp_ids) == 0:
+        return {"부서별": {}, "직무별": {}, "직위직급별": {}}
+        
+    # 4. 필터링된 직원들만을 대상으로 코호트 분석 수행
+    # 코호트 분석의 기반이 될 데이터프레임
+    analysis_df = emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'IN_DATE', 'OUT_DATE']].copy()
+    
+    # 분석에 필요한 차원 정보(첫 부서, 첫 직무, 첫 직위)를 analysis_df에 병합
+    analysis_df = pd.merge(analysis_df, filtered_emps_df[['EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME']], on='EMP_ID', how='left')
+    
+    # 5. 각 차원별로 코호트 데이터 계산
+    data_bundle = {}
+    
+    # 부서별 코호트
+    cohort_map_div = {}
+    cohort_map_div['전체'] = _create_cohort_data(analysis_df)
+    for div_name in division_order:
+        df_filtered = analysis_df[analysis_df['DIVISION_NAME'] == div_name]
+        cohort_map_div[div_name] = _create_cohort_data(df_filtered)
+    data_bundle['부서별'] = cohort_map_div
+    
+    # 직무별 코호트
+    cohort_map_job = {}
+    cohort_map_job['전체'] = _create_cohort_data(analysis_df)
+    for job_name in job_l1_order:
+        df_filtered = analysis_df[analysis_df['JOB_L1_NAME'] == job_name]
+        cohort_map_job[job_name] = _create_cohort_data(df_filtered)
+    data_bundle['직무별'] = cohort_map_job
+
+    # 직위직급별 코호트
+    cohort_map_pos = {}
+    cohort_map_pos['전체'] = _create_cohort_data(analysis_df)
+    for pos_name in position_order:
+        df_filtered = analysis_df[analysis_df['POSITION_NAME'] == pos_name]
+        cohort_map_pos[pos_name] = _create_cohort_data(df_filtered)
+    data_bundle['직위직급별'] = cohort_map_pos
+    
+    return data_bundle
+
+@st.cache_data
+def prepare_proposal_07_data(
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
+    """
+    제안 7: 경력 유형 및 첫 직무별 재직기간 분석
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 재직기간 분석 데이터를 생성합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    career_info_df = base_data["career_info_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성 (prepare_proposal_01_data와 동일)
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
+    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
+    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    
+    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
+    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+
+    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+
+    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 3. 글로벌 필터 적용
+    filtered_emps_df = emp_details.copy()
+    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
+    
+    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    if len(filtered_emp_ids) == 0:
+        return {"analysis_df": pd.DataFrame()}
+
+    # 4. 필터링된 직원들만을 대상으로 재직기간 분석 데이터 생성
+    # 경력 유형 계산
+    career_summary = career_info_df[career_info_df['EMP_ID'].isin(filtered_emp_ids)].groupby('EMP_ID')['CAREER_REL_YN'].apply(
+        lambda x: '관련 경력' if 'Y' in x.values else '비관련 경력'
+    ).reset_index().rename(columns={'CAREER_REL_YN': 'CAREER_TYPE'})
+    
+    # 분석의 기반이 될 데이터프레임 생성
+    analysis_df = emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'DURATION']].copy()
+    analysis_df = pd.merge(analysis_df, career_summary, on='EMP_ID', how='left')
+    analysis_df['CAREER_TYPE'] = analysis_df['CAREER_TYPE'].fillna('경력 없음')
+    analysis_df['TENURE_YEARS'] = analysis_df['DURATION'] / 365.25
+
+    # 첫 직무 및 첫 부서 정보 병합
+    analysis_df = pd.merge(analysis_df, first_job[['EMP_ID', 'JOB_L1_NAME']].rename(columns={'JOB_L1_NAME': 'JOB_CATEGORY'}), on='EMP_ID', how='left')
+    analysis_df = pd.merge(analysis_df, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    analysis_df = pd.merge(analysis_df, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    
+    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'JOB_CATEGORY', 'POSITION_NAME'])
+
+    return {"analysis_df": analysis_df}
+
+@st.cache_data
+def prepare_proposal_08_data(
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
+    """
+    제안 8: 직무별 인력 유지 현황 분석 (재직자 vs 퇴사자)
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 재직/퇴사자별 평균 근속년수 분석 데이터를 생성합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    career_info_df = base_data["career_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE', 'CURRENT_EMP_YN']].copy()
+    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
+    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
+    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    
+    # 이 분석은 '마지막' 상태 기준이므로 last_ 사용, 필터 기준은 first_ 사용
+    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
+    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+
+    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+
+    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 3. 글로벌 필터 적용
+    filtered_emps_df = emp_details.copy()
+    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
+    
+    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    if len(filtered_emp_ids) == 0:
+        return {"analysis_df": pd.DataFrame()}
+
+    # 4. 필터링된 직원들만을 대상으로 인력 유지 현황 분석 데이터 생성
+    analysis_df = emp_details[emp_details['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'CURRENT_EMP_YN', 'TENURE_YEARS']].copy()
+    
+    # 모든 직원의 마지막 직무 및 부서 정보 가져오기
+    last_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').last()
+    last_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').last()
+    
+    last_job['JOB_CATEGORY'] = last_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    last_dept['DIVISION_NAME'] = last_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+
+    analysis_df = pd.merge(analysis_df, last_job[['JOB_CATEGORY']], on='EMP_ID', how='left')
+    analysis_df = pd.merge(analysis_df, last_dept[['DIVISION_NAME']], on='EMP_ID', how='left')
+    
+    # 입사 시점 직위 정보 추가
+    analysis_df = pd.merge(analysis_df, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    
+    analysis_df['STATUS'] = np.where(analysis_df['CURRENT_EMP_YN'] == 'Y', '재직자', '퇴사자')
+    analysis_df = analysis_df.dropna(subset=['JOB_CATEGORY', 'DIVISION_NAME', 'POSITION_NAME'])
+
+    return {"analysis_df": analysis_df}
+
+@st.cache_data
+def prepare_proposal_09_data(
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
+    """
+    제안 9: 조직 활력도 진단 (연간 직무 이동률)
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 모든 차원의 연간 직무 이동률 데이터를 생성합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    career_info_df = base_data["career_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
+    # (이전 함수들과 동일한 로직을 사용하여 emp_details 생성)
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
+    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
+    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    
+    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
+    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+
+    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+    
+    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 3. 글로벌 필터 적용
+    filtered_emps_df = emp_details.copy()
+    # ... (9개 필터 if 문 전체 블록) ...
+    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
+    
+    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    if len(filtered_emp_ids) == 0:
+        return {"analysis_df": pd.DataFrame(), "overall_df": pd.DataFrame()}
+
+    # 4. 필터링된 직원 대상 연간 직무 이동률 계산
+    job_changes = job_info_df[job_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
+    job_changes = pd.merge(job_changes, emp_df[['EMP_ID', 'IN_DATE']], on='EMP_ID', how='left')
+    job_changes = job_changes[job_changes['JOB_APP_START_DATE'] > job_changes['IN_DATE']] # 첫 직무 제외
+    job_changes['YEAR'] = job_changes['JOB_APP_START_DATE'].dt.year
+
+    analysis_records = []
+    overall_records = []
+    all_years = sorted(job_changes['YEAR'].unique())
+    
+    pos_info_with_name = pd.merge(position_info_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    pos_info_sorted = pos_info_with_name.sort_values('GRADE_START_DATE')
+    dept_info_sorted = department_info_df.sort_values('DEP_APP_START_DATE')
+
+    for year in all_years:
+        year_end = pd.to_datetime(f'{year}-12-31')
+        active_in_year = emp_df[(emp_df['IN_DATE'] <= year_end) & (emp_df['OUT_DATE'].isnull() | (emp_df['OUT_DATE'] > year_end)) & (emp_df['EMP_ID'].isin(filtered_emp_ids))].copy()
+        changes_in_year = job_changes[job_changes['YEAR'] == year].copy()
+        
+        if active_in_year.empty: continue
+
+        overall_rate = (changes_in_year['EMP_ID'].nunique() / active_in_year['EMP_ID'].nunique()) * 100
+        overall_records.append({'YEAR': year, 'MOBILITY_RATE': overall_rate})
+            
+        # 재직자(분모)와 이동자(분자)의 연말 기준 속성 부여
+        active_in_year['DATE_SNAPSHOT'] = year_end
+        active_with_attrs = pd.merge_asof(active_in_year.sort_values('DATE_SNAPSHOT'), dept_info_sorted, left_on='DATE_SNAPSHOT', right_on='DEP_APP_START_DATE', by='EMP_ID')
+        active_with_attrs = pd.merge_asof(active_with_attrs.sort_values('DATE_SNAPSHOT'), pos_info_sorted, left_on='DATE_SNAPSHOT', right_on='GRADE_START_DATE', by='EMP_ID')
+        
+        changes_in_year['DATE_SNAPSHOT'] = changes_in_year['JOB_APP_START_DATE']
+        changes_with_attrs = pd.merge_asof(changes_in_year.sort_values('DATE_SNAPSHOT'), dept_info_sorted, left_on='DATE_SNAPSHOT', right_on='DEP_APP_START_DATE', by='EMP_ID')
+        changes_with_attrs = pd.merge_asof(changes_with_attrs.sort_values('DATE_SNAPSHOT'), pos_info_sorted, left_on='DATE_SNAPSHOT', right_on='GRADE_START_DATE', by='EMP_ID')
+        
+        for df in [active_with_attrs, changes_with_attrs]:
+            parent_info = df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
+            df[['DIVISION_NAME', 'OFFICE_NAME']] = parent_info
+
+        # 각 차원별 이동률 계산
+        dimensions = {
+            'DIVISION': ['DIVISION_NAME'], 'OFFICE': ['DIVISION_NAME', 'OFFICE_NAME'],
+            'POSITION': ['POSITION_NAME'], 'GRADE': ['POSITION_NAME', 'GRADE_ID']
+        }
+
+        for dim_name, cols in dimensions.items():
+            headcount_grouped = active_with_attrs.dropna(subset=cols).groupby(cols, observed=False)['EMP_ID'].nunique()
+            changes_grouped = changes_with_attrs.dropna(subset=cols).groupby(cols, observed=False)['EMP_ID'].nunique()
+            mobility_rates = (changes_grouped / headcount_grouped * 100).fillna(0)
+
+            for group_keys, rate in mobility_rates.items():
+                record = {'YEAR': year, 'GROUP_TYPE': dim_name, 'MOBILITY_RATE': rate}
+                keys = [group_keys] if isinstance(group_keys, str) else group_keys
+                if dim_name == 'OFFICE': record['DIVISION_NAME'], record['GROUP_NAME'] = keys
+                elif dim_name == 'GRADE': record['POSITION_NAME'], record['GROUP_NAME'] = keys
+                else: record['GROUP_NAME'] = keys[0]
+                analysis_records.append(record)
+    
+    analysis_df = pd.DataFrame(analysis_records)
+    overall_df = pd.DataFrame(overall_records)
+
+    return {"analysis_df": analysis_df, "overall_df": overall_df}
+
+@st.cache_data
+def prepare_proposal_10_data(
+    filter_division='전체',
+    filter_job_l1='전체',
+    filter_position='전체',
+    filter_gender='전체',
+    filter_age_bin='전체',
+    filter_career_bin='전체',
+    filter_salary_bin='전체',
+    filter_region='전체',
+    filter_contract='전체'
+):
+    """
+    제안 10: 학력/경력과 초봉의 관계 분석
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 초봉 분석 데이터를 생성합니다.
+    """
+    # 1. 필요한 모든 기본 데이터 로드
+    base_data = load_all_base_data()
+    emp_df = base_data["emp_df"]
+    department_info_df = base_data["department_info_df"]
+    job_info_df = base_data["job_info_df"]
+    position_info_df = base_data["position_info_df"]
+    career_info_df = base_data["career_info_df"]
+    salary_contract_info_df = base_data["salary_contract_info_df"]
+    region_info_df = base_data["region_info_df"]
+    contract_info_df = base_data["contract_info_df"]
+    department_df = base_data["department_df"]
+    job_df = base_data["job_df"]
+    position_df = base_data["position_df"]
+    region_df = base_data["region_df"]
+    school_info_df = base_data["school_info_df"]
+    school_df = base_data["school_df"]
+
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
+    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
+    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    
+    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
+    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
+    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
+    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+
+    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
+    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
+    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
+    job_df_indexed = job_df.set_index('JOB_ID')
+    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
+    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+
+    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
+    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+
+    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    
+    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
+    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
+    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
+    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
+    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
+    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 3. 글로벌 필터 적용
+    filtered_emps_df = emp_details.copy()
+    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
+    
+    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    if len(filtered_emp_ids) == 0:
+        return {"analysis_df": pd.DataFrame()}
+
+    # 4. 필터링된 직원 대상 초봉 분석 데이터 생성
+    # 초봉 정보
+    initial_contracts = salary_contract_info_df[
+        (salary_contract_info_df['PAY_CATEGORY'] == '연봉') &
+        (salary_contract_info_df['EMP_ID'].isin(filtered_emp_ids))
+    ].sort_values('SAL_START_DATE').groupby('EMP_ID').first().reset_index()
+    initial_contracts = initial_contracts[['EMP_ID', 'SAL_AMOUNT']].rename(columns={'SAL_AMOUNT': 'INITIAL_SALARY'})
+
+    # 최종 학력 정보
+    school_history = school_info_df[school_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
+    school_history = pd.merge(school_history, school_df, on='SCHOOL_ID', how='left')
+    final_education = school_history.sort_values('GRAD_YEAR').groupby('EMP_ID').last().reset_index()
+    final_education = final_education[['EMP_ID', 'SCHOOL_LEVEL', 'MAJOR_CATEGORY']]
+
+    # 과거 총 경력 정보
+    prior_career = career_info_df[career_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
+    prior_career_summary = prior_career.groupby('EMP_ID')['CAREER_DURATION'].sum().reset_index()
+    prior_career_summary['TOTAL_PRIOR_CAREER_YEARS'] = prior_career_summary['CAREER_DURATION'] / 365.25
+
+    # 최종 분석 데이터프레임 병합
+    analysis_df = pd.merge(initial_contracts, final_education, on='EMP_ID', how='inner')
+    analysis_df = pd.merge(analysis_df, prior_career_summary[['EMP_ID', 'TOTAL_PRIOR_CAREER_YEARS']], on='EMP_ID', how='left')
+    analysis_df['TOTAL_PRIOR_CAREER_YEARS'] = analysis_df['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    analysis_df = analysis_df.dropna(subset=['INITIAL_SALARY', 'SCHOOL_LEVEL', 'MAJOR_CATEGORY'])
+
+    # 경력 그룹(Bin) 정보 추가
+    bins = [-1, 3, 7, 100]
+    labels = ['신입 (0~3년)', '주니어 (3~7년)', '시니어 (7년+)']
+    analysis_df['CAREER_BIN'] = pd.cut(analysis_df['TOTAL_PRIOR_CAREER_YEARS'], bins=bins, labels=labels, right=True)
+
+    return {"analysis_df": analysis_df}
 # 각 함수의 결과는 @st.cache_data로 캐싱되어야 합니다.
