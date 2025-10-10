@@ -625,9 +625,8 @@ def prepare_proposal_02_data(
     job_df = base_data["job_df"]
     position_df = base_data["position_df"]
     region_df = base_data["region_df"]
-    division_order = base_data["department_table"].division_order
 
-    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성 (prepare_proposal_01_data와 동일)
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
     emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
@@ -653,7 +652,7 @@ def prepare_proposal_02_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-
+    
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
@@ -757,6 +756,7 @@ def prepare_proposal_02_data(
     labels_job = sorted(pd.concat([sankey_job['from_job'], sankey_job['to_job']]).unique())
     indices_job = {label: i for i, label in enumerate(labels_job)}
 
+    # '방식 1'에 따라, view가 사용할 상세 데이터를 반환
     return {
         "sankey_div_data": {"labels": labels_div, "indices": indices_div, "data": sankey_div},
         "sankey_job_data": {"labels": labels_job, "indices": indices_job, "data": sankey_job},
