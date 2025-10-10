@@ -3,11 +3,16 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pandas.api.types import is_categorical_dtype
 
-def create_figure_and_df(data_bundle, dimension_ui_name, period_agg_name, subgroup_name):
+def create_figure_and_df(data_bundle, dimension_ui_name, period_agg_name, subgroup_name, dimension_config):
     """
-    basic_proposal(인원 변동 현황) 그래프 및 요약 테이블을 생성합니다.
+    제안 0: 기본 인원 변동 현황 그래프 및 요약 테이블을 생성합니다.
+    dimension_config에 따라 동적으로 X축과 필터를 처리합니다.
     """
     # 1. 데이터 선택
+    # config에서 필요한 컬럼명과 순서 정보 등을 가져옴
+    config = dimension_config.get(dimension_ui_name, {})
+    dimension_col = config.get('top', config.get('col'))
+    
     dimension_data = data_bundle.get(dimension_ui_name, data_bundle.get('전체', {}))
     summary_df_for_agg = dimension_data.get(period_agg_name, pd.DataFrame())
     overall_summary_df_for_agg = data_bundle.get('전체', {}).get(period_agg_name, pd.DataFrame())
@@ -27,9 +32,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, period_agg_name, subgro
             df['PERIOD'] = df[period_source_col].dt.strftime('%Y년 %m월')
     
     # 3. 그래프용 데이터(plot_df) 최종 선택
-    dim_map = {'부서별': 'DIVISION_NAME', '직무별': 'JOB_L1_NAME', '성별': 'GENDER', '연령별': 'AGE_BIN', '직위직급별': 'POSITION_NAME', '경력연차별': 'CAREER_BIN', '연봉구간별': 'SALARY_BIN', '지역별': 'REGION_CATEGORY', '계약별': 'CONT_CATEGORY'}
-    dimension_col = dim_map.get(dimension_ui_name)
-
     if subgroup_name == '전체' or not dimension_col:
         plot_df = overall_summary_df_for_agg.tail(12)
         title = f"{period_agg_name.replace('ly','별')} 인원 변동 현황"
@@ -45,9 +47,19 @@ def create_figure_and_df(data_bundle, dimension_ui_name, period_agg_name, subgro
         fig.add_trace(go.Bar(x=plot_df['PERIOD'], y=plot_df['NEW_HIRES'], name='입사자', marker_color='blue'), secondary_y=False)
         fig.add_trace(go.Bar(x=plot_df['PERIOD'], y=plot_df['LEAVERS'], name='퇴사자', marker_color='red'), secondary_y=False)
         fig.add_trace(go.Scatter(x=plot_df['PERIOD'], y=plot_df['HEADCOUNT'], name='총원', mode='lines+markers+text', text=plot_df['HEADCOUNT'], textposition='top center', line=dict(color='black')), secondary_y=True)
+        
         max_val = max(plot_df['NEW_HIRES'].max(), plot_df['LEAVERS'].max())
         y1_range = [0, max_val * 1.5 if max_val > 0 else 10]
-        fig.update_layout(title_text=title, xaxis_title='기간', font_size=14, height=700, barmode='group', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        
+        fig.update_layout(
+            template='plotly',
+            title_text=title,
+            xaxis_title='기간',
+            font_size=14,
+            height=700,
+            barmode='group',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
         fig.update_yaxes(title_text="입사/퇴사자 수", secondary_y=False, range=y1_range)
         fig.update_yaxes(title_text="총원", secondary_y=True, rangemode='tozero')
     
@@ -59,23 +71,18 @@ def create_figure_and_df(data_bundle, dimension_ui_name, period_agg_name, subgro
         
         aggregate_df = pd.concat([agg_overall, agg_by_dim], axis=1).fillna(0).astype(int)
         
-        # ----- [수정된 부분 시작] -----
-        # 컬럼 순서 재정렬 (모든 데이터 타입을 처리하도록 수정)
+        # 컬럼 순서 재정렬
         cols_ordered = ['전체']
-        # 컬럼 타입이 Categorical인 경우와 아닌 경우를 분리하여 처리
-        if is_categorical_dtype(summary_df_for_agg[dimension_col]):
-            # category 타입이면 정의된 순서를 따름
-            ordered_categories = summary_df_for_agg[dimension_col].cat.categories.tolist()
-            cols_ordered += [col for col in ordered_categories if col in aggregate_df.columns]
-        else:
-            # 일반 object(문자열) 타입이면 정렬된 unique 값을 따름
-            ordered_categories = sorted(summary_df_for_agg[dimension_col].unique())
-            cols_ordered += [col for col in ordered_categories if col in aggregate_df.columns]
+        # config에 정의된 순서(order)가 있으면 사용
+        if 'order' in config and config['order'] is not None:
+             ordered_categories = config['order']
+             cols_ordered += [col for col in ordered_categories if col in aggregate_df.columns]
+        else: # 없으면 정렬된 unique 값 사용
+             ordered_categories = sorted(summary_df_for_agg[dimension_col].unique())
+             cols_ordered += [col for col in ordered_categories if col in aggregate_df.columns]
         
-        # 존재하지 않는 컬럼이 있을 수 있으므로, 최종적으로 존재하는 컬럼만 선택
         final_cols = [col for col in cols_ordered if col in aggregate_df.columns]
         aggregate_df = aggregate_df[final_cols]
-        # ----- [수정된 부분 끝] -----
         
         aggregate_df = aggregate_df.tail(12)
 

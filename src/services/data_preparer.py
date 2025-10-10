@@ -463,7 +463,10 @@ def prepare_basic_proposal_data(
             'yearly': yearly_summary
         }
             
-    return data_bundle
+    return {
+        "data_bundle": data_bundle,
+        "order_map": order_map
+    }
 
 @st.cache_data
 def prepare_proposal_01_data(
