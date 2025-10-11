@@ -842,49 +842,32 @@ def prepare_proposal_04_data(
 ):
     """
     제안 4: 조직 경험 자산 현황 (근속년수 분포)
-    글로벌 필터를 적용하여, 분석에 필요한 상세 데이터프레임을 생성합니다.
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 현재 재직자의 근속년수 분포 분석을 위한
+    모든 상세 정보를 포함하는 데이터프레임을 생성합니다.
     """
-    # 1. 모든 재직자의 최신 상태 정보가 담긴 스냅샷 데이터를 불러옵니다. (캐싱됨)
+    # 1. 모든 재직자의 최신 정보 스냅샷 로드
+    # _get_current_employee_snapshot 함수는 근속년수(TENURE_YEARS)를 포함한
+    # 모든 필터링 차원에 필요한 컬럼을 가지고 있습니다.
     snapshot_df = _get_current_employee_snapshot()
 
     # 2. 글로벌 필터 적용
-    filtered_df = snapshot_df.copy()
-    if filter_division != '전체':
-        filtered_df = filtered_df[filtered_df['DIVISION_NAME'] == filter_division]
-    if filter_job_l1 != '전체':
-        filtered_df = filtered_df[filtered_df['JOB_L1_NAME'] == filter_job_l1]
-    if filter_position != '전체':
-        filtered_df = filtered_df[filtered_df['POSITION_NAME'] == filter_position]
-    if filter_gender != '전체':
-        filtered_df = filtered_df[filtered_df['GENDER'] == filter_gender]
-    if filter_age_bin != '전체':
-        filtered_df = filtered_df[filtered_df['AGE_BIN'] == filter_age_bin]
-    if filter_career_bin != '전체':
-        filtered_df = filtered_df[filtered_df['CAREER_BIN'] == filter_career_bin]
-    if filter_salary_bin != '전체':
-        filtered_df = filtered_df[filtered_df['SALARY_BIN'] == filter_salary_bin]
-    if filter_region != '전체':
-        filtered_df = filtered_df[filtered_df['REGION_CATEGORY'] == filter_region]
-    if filter_contract != '전체':
-        filtered_df = filtered_df[filtered_df['CONT_CATEGORY'] == filter_contract]
+    analysis_df = snapshot_df.copy()
+    if filter_division != '전체': analysis_df = analysis_df[analysis_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': analysis_df = analysis_df[analysis_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': analysis_df = analysis_df[analysis_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': analysis_df = analysis_df[analysis_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': analysis_df = analysis_df[analysis_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': analysis_df = analysis_df[analysis_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': analysis_df = analysis_df[analysis_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': analysis_df = analysis_df[analysis_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': analysis_df = analysis_df[analysis_df['CONT_CATEGORY'] == filter_contract]
 
-    # 3. 이 분석(Proposal 04)에만 필요한 추가 가공
-    # 그래프 X축(1년 단위)을 위한 근속년수 그룹핑
-    if not filtered_df.empty:
-        max_tenure = int(filtered_df['TENURE_YEARS'].max())
-        bins = range(0, max_tenure + 2)
-        labels = range(0, max_tenure + 1)
-        filtered_df['TENURE_BIN'] = pd.cut(filtered_df['TENURE_YEARS'], bins=bins, right=False, labels=labels)
-    else:
-        # 데이터가 없을 경우 빈 컬럼 추가
-        filtered_df['TENURE_BIN'] = pd.Series(dtype='int')
-
-    # 4. 최종 analysis_df 반환
-    # 이 데이터프레임은 view 모듈에서 그래프를 그리고, app.py에서 피벗 테이블을 만드는 데 사용됩니다.
+    # 3. 필터링된 전체 데이터프레임을 그대로 반환
+    # view 단에서 이 데이터를 받아 자유롭게 그룹핑하고 시각화할 수 있습니다.
     return {
-        "analysis_df": filtered_df,
-        "order_map": order_map
-        }
+        "analysis_df": analysis_df,
+        "order_map": order_map # 전역 order_map 사용
+    }
 
 @st.cache_data
 def prepare_proposal_05_data(
