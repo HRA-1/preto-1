@@ -64,6 +64,8 @@ def _get_current_employee_snapshot():
     position_df = base_data["position_df"]
     job_df = base_data["job_df"]
     department_df = base_data["department_df"]
+    contract_info_df = base_data["contract_info_df"]
+    region_info_df = base_data["region_info_df"]
 
     # 헬퍼 데이터 준비
     job_df_indexed = job_df.set_index('JOB_ID')
@@ -82,17 +84,21 @@ def _get_current_employee_snapshot():
     current_depts = department_info_df[department_info_df['DEP_APP_END_DATE'].isnull()][['EMP_ID', 'DEP_ID']]
     current_positions = position_info_df[position_info_df['GRADE_END_DATE'].isnull()][['EMP_ID', 'POSITION_ID', 'GRADE_ID']]
     current_jobs = job_info_df[job_info_df['JOB_APP_END_DATE'].isnull()][['EMP_ID', 'JOB_ID']]
-    current_salaries = salary_contract_info_df[salary_contract_info_df['SAL_END_DATE'].isnull()][['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']]
+    current_contracts = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
+    current_salaries = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
+    current_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     
     # 4. 과거 총 경력 계산
     prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum().reset_index()
     prior_career_summary['TOTAL_PRIOR_CAREER_YEARS'] = prior_career_summary['CAREER_DURATION'] / 365.25
 
     # 5. 모든 정보 병합
-    snapshot_df = pd.merge(snapshot_df, current_depts, on='EMP_ID', how='left')
-    snapshot_df = pd.merge(snapshot_df, current_positions, on='EMP_ID', how='left')
-    snapshot_df = pd.merge(snapshot_df, current_jobs, on='EMP_ID', how='left')
-    snapshot_df = pd.merge(snapshot_df, current_salaries, on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_depts[['EMP_ID', 'DEP_ID']], on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_positions[['EMP_ID', 'POSITION_ID', 'GRADE_ID']], on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_jobs[['EMP_ID', 'JOB_ID']], on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_contracts[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_salaries[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
+    snapshot_df = pd.merge(snapshot_df, current_region[['EMP_ID', 'REG_ID']], on='EMP_ID', how='left')
     snapshot_df = pd.merge(snapshot_df, prior_career_summary[['EMP_ID', 'TOTAL_PRIOR_CAREER_YEARS']], on='EMP_ID', how='left')
     snapshot_df['TOTAL_PRIOR_CAREER_YEARS'] = snapshot_df['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     
@@ -104,6 +110,14 @@ def _get_current_employee_snapshot():
     snapshot_df['JOB_L2_NAME'] = snapshot_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
 
     # 7. 필터링을 위한 구간(Bin) 정보 추가
+    # 7-1. 연봉 환산 (주급, 일급, 시급 포함)
+    snapshot_df['ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT']
+    snapshot_df.loc[snapshot_df['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] * 12
+    snapshot_df.loc[snapshot_df['PAY_CATEGORY'] == '주급', 'ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] * 52
+    snapshot_df.loc[snapshot_df['PAY_CATEGORY'] == '일급', 'ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] * 250
+    snapshot_df.loc[snapshot_df['PAY_CATEGORY'] == '시급', 'ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] * 2080
+
+    # 7-2. 각 그룹(Bin) 컬럼 생성
     # 연령대
     age_bins = [-1, 19, 29, 39, 49, 150]
     age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
@@ -121,10 +135,21 @@ def _get_current_employee_snapshot():
     snapshot_df['CAREER_BIN'] = pd.cut(snapshot_df['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     
     # 연봉 구간
-    snapshot_df['ANNUAL_SALARY'] = snapshot_df['SAL_AMOUNT'] # 현재 연봉 기준만 있다고 가정
     salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]
     salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     snapshot_df['SALARY_BIN'] = pd.cut(snapshot_df['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+
+    # 7-3. 순서가 중요한 컬럼들을 Categorical 타입으로 변환
+    snapshot_df['DIVISION_NAME'] = pd.Categorical(snapshot_df['DIVISION_NAME'], categories=division_order, ordered=True)
+    snapshot_df['OFFICE_NAME'] = pd.Categorical(snapshot_df['OFFICE_NAME'], categories=office_order, ordered=True)
+    snapshot_df['JOB_L1_NAME'] = pd.Categorical(snapshot_df['JOB_L1_NAME'], categories=job_l1_order, ordered=True)
+    snapshot_df['JOB_L2_NAME'] = pd.Categorical(snapshot_df['JOB_L2_NAME'], categories=job_l2_order, ordered=True)
+    snapshot_df['POSITION_NAME'] = pd.Categorical(snapshot_df['POSITION_NAME'], categories=position_order, ordered=True)
+    
+    # Binning으로 생성된 컬럼들도 순서가 있으므로 Categorical로 변환
+    snapshot_df['AGE_BIN'] = pd.Categorical(snapshot_df['AGE_BIN'], categories=age_labels, ordered=True)
+    snapshot_df['CAREER_BIN'] = pd.Categorical(snapshot_df['CAREER_BIN'], categories=career_labels, ordered=True)
+    snapshot_df['SALARY_BIN'] = pd.Categorical(snapshot_df['SALARY_BIN'], categories=salary_labels, ordered=True)
 
     # 8. 최종 정리
     snapshot_df['GENDER'] = snapshot_df['GENDER'].map({'M': '남성', 'F': '여성'})
@@ -776,38 +801,31 @@ def prepare_proposal_03_data(
 ):
     """
     제안 3: 조직 세대교체 현황 분석 (직위별 연령 분포)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 연령 분포 데이터를 생성합니다.
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 현재 재직자의 직위별 연령 분포 분석을 위한
+    모든 상세 정보를 포함하는 데이터프레임을 생성합니다.
     """
-    # 1. 모든 재직자의 최신 상태 정보가 담긴 스냅샷 데이터를 불러옵니다. (캐싱됨)
+    # 1. 모든 재직자의 최신 정보 스냅샷 로드
+    # _get_current_employee_snapshot 함수는 이미 모든 필터링 차원(DIMENSION_CONFIG)에
+    # 필요한 컬럼을 포함하고 있습니다.
     snapshot_df = _get_current_employee_snapshot()
 
     # 2. 글로벌 필터 적용
-    filtered_df = snapshot_df.copy()
-    if filter_division != '전체':
-        filtered_df = filtered_df[filtered_df['DIVISION_NAME'] == filter_division]
-    if filter_job_l1 != '전체':
-        filtered_df = filtered_df[filtered_df['JOB_L1_NAME'] == filter_job_l1]
-    if filter_position != '전체':
-        filtered_df = filtered_df[filtered_df['POSITION_NAME'] == filter_position]
-    if filter_gender != '전체':
-        filtered_df = filtered_df[filtered_df['GENDER'] == filter_gender]
-    if filter_age_bin != '전체':
-        filtered_df = filtered_df[filtered_df['AGE_BIN'] == filter_age_bin]
-    if filter_career_bin != '전체':
-        filtered_df = filtered_df[filtered_df['CAREER_BIN'] == filter_career_bin]
-    if filter_salary_bin != '전체':
-        filtered_df = filtered_df[filtered_df['SALARY_BIN'] == filter_salary_bin]
-    if filter_region != '전체':
-        filtered_df = filtered_df[filtered_df['REGION_CATEGORY'] == filter_region]
-    if filter_contract != '전체':
-        filtered_df = filtered_df[filtered_df['CONT_CATEGORY'] == filter_contract]
+    analysis_df = snapshot_df.copy()
+    if filter_division != '전체': analysis_df = analysis_df[analysis_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': analysis_df = analysis_df[analysis_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': analysis_df = analysis_df[analysis_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': analysis_df = analysis_df[analysis_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': analysis_df = analysis_df[analysis_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': analysis_df = analysis_df[analysis_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': analysis_df = analysis_df[analysis_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': analysis_df = analysis_df[analysis_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': analysis_df = analysis_df[analysis_df['CONT_CATEGORY'] == filter_contract]
 
-    if filtered_df.empty:
-        return {"analysis_df": pd.DataFrame(), "aggregate_df_div": pd.DataFrame(), "aggregate_df_job": pd.DataFrame()}
-
-    # 4. 최종 데이터 묶음 반환
+    # 3. 필터링된 전체 데이터프레임을 그대로 반환
+    # view 단에서 이 데이터를 받아 자유롭게 그룹핑하고 시각화할 수 있습니다.
     return {
-        "analysis_df": filtered_df
+        "analysis_df": analysis_df,
+        "order_map": order_map # 전역 order_map 사용
     }
 
 @st.cache_data
@@ -863,7 +881,10 @@ def prepare_proposal_04_data(
 
     # 4. 최종 analysis_df 반환
     # 이 데이터프레임은 view 모듈에서 그래프를 그리고, app.py에서 피벗 테이블을 만드는 데 사용됩니다.
-    return {"analysis_df": filtered_df}
+    return {
+        "analysis_df": filtered_df,
+        "order_map": order_map
+        }
 
 @st.cache_data
 def prepare_proposal_05_data(
