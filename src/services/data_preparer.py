@@ -20,12 +20,20 @@ from services.tables.HR_Core.position_table import position_order
 # --- 순서 정보 ---
 # --------------------------------------------------------------------------
 
+age_bins = [-1, 19, 29, 39, 49, 150]
+career_bins = [-1, 1, 3, 7, 15, 150]
+salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]
+
 age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
 career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
 salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
+
 gender_order = ['남성', '여성']
 region_order = ['서울 본사', '국내 현장', '해외 현장']
 contract_order = ['정규직', '계약직']
+
+tenure_bins_agg = [-np.inf, 3, 7, np.inf]
+tenure_labels_agg = ['3년 이하', '3년초과~7년이하', '7년 초과']
 
 # 모든 순서 정보를 하나의 딕셔너리로 통합
 order_map = {
@@ -40,6 +48,7 @@ order_map = {
     'SALARY_BIN': salary_labels,
     'REGION_CATEGORY': region_order,
     'CONT_CATEGORY': contract_order,
+    'TENURE_GROUP': tenure_labels_agg,
 }
 
 # --------------------------------------------------------------------------
@@ -119,24 +128,16 @@ def _get_current_employee_snapshot():
 
     # 7-2. 각 그룹(Bin) 컬럼 생성
     # 연령대
-    age_bins = [-1, 19, 29, 39, 49, 150]
-    age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     snapshot_df['AGE_BIN'] = pd.cut(snapshot_df['AGE'], bins=age_bins, labels=age_labels)
 
     # 근속년수
-    tenure_bins_agg = [-np.inf, 3, 7, np.inf]
-    tenure_labels_agg = ['3년 이하', '3년초과~7년이하', '7년 초과']
     snapshot_df['TENURE_GROUP'] = pd.cut(snapshot_df['TENURE_YEARS'], bins=tenure_bins_agg, labels=tenure_labels_agg)
 
     # 총 경력연차
     snapshot_df['TOTAL_CAREER_YEARS'] = snapshot_df['TENURE_YEARS'] + snapshot_df['TOTAL_PRIOR_CAREER_YEARS']
-    career_bins = [-1, 1, 3, 7, 15, 150]
-    career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     snapshot_df['CAREER_BIN'] = pd.cut(snapshot_df['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     
     # 연봉 구간
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]
-    salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     snapshot_df['SALARY_BIN'] = pd.cut(snapshot_df['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 7-3. 순서가 중요한 컬럼들을 Categorical 타입으로 변환
@@ -254,13 +255,8 @@ def _get_monthly_employee_state_df():
     analysis_df['GENDER'] = analysis_df['GENDER'].map({'M': '남성', 'F': '여성'})
 
     # 7. 필터링을 위한 구간(Bin) 정보 추가
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     analysis_df['AGE_BIN'] = pd.cut(analysis_df['AGE'], bins=age_bins, labels=age_labels)
-    
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     analysis_df['CAREER_BIN'] = pd.cut(analysis_df['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
-    
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     analysis_df['SALARY_BIN'] = pd.cut(analysis_df['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 8. 최종 정리 및 반환
@@ -394,12 +390,9 @@ def prepare_basic_proposal_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -569,12 +562,9 @@ def prepare_proposal_01_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -688,12 +678,9 @@ def prepare_proposal_02_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -992,8 +979,7 @@ def prepare_proposal_06_data(
     filter_contract='전체'
 ):
     """
-    제안 6: 입사 연도별 잔존율 코호트 분석
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 부서/직무/직위별 코호트 데이터를 생성합니다.
+    제안 6: 입사 연도별 잔존율 코호트 분석 (모든 차원 지원)
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -1009,10 +995,7 @@ def prepare_proposal_06_data(
     job_df = base_data["job_df"]
     position_df = base_data["position_df"]
     region_df = base_data["region_df"]
-    division_order = base_data["department_table"].division_order
-    job_l1_order = base_data["job_table"].job_l1_order
-    position_order = base_data["position_table"].position_order
-
+    
     # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
     emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
@@ -1050,12 +1033,9 @@ def prepare_proposal_06_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -1072,43 +1052,44 @@ def prepare_proposal_06_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"부서별": {}, "직무별": {}, "직위직급별": {}}
+        return {"cohort_data_bundle": {}, "order_map": order_map}
         
     # 4. 필터링된 직원들만을 대상으로 코호트 분석 수행
-    # 코호트 분석의 기반이 될 데이터프레임
     analysis_df = emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'IN_DATE', 'OUT_DATE']].copy()
     
-    # 분석에 필요한 차원 정보(첫 부서, 첫 직무, 첫 직위)를 analysis_df에 병합
-    analysis_df = pd.merge(analysis_df, filtered_emps_df[['EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME']], on='EMP_ID', how='left')
+    # [수정된 부분] 분석에 필요한 '모든' 차원 정보를 filtered_emps_df로부터 병합
+    cols_to_merge = [
+        'EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME', 'GENDER', 
+        'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+    ]
+    analysis_df = pd.merge(analysis_df, filtered_emps_df[cols_to_merge], on='EMP_ID', how='left')
     
-    # 5. 각 차원별로 코호트 데이터 계산
-    data_bundle = {}
+    # 5. 모든 차원별로 코호트 데이터 계산
+    cohort_data_bundle = {}
     
-    # 부서별 코호트
-    cohort_map_div = {}
-    cohort_map_div['전체'] = _create_cohort_data(analysis_df)
-    for div_name in division_order:
-        df_filtered = analysis_df[analysis_df['DIVISION_NAME'] == div_name]
-        cohort_map_div[div_name] = _create_cohort_data(df_filtered)
-    data_bundle['부서별'] = cohort_map_div
-    
-    # 직무별 코호트
-    cohort_map_job = {}
-    cohort_map_job['전체'] = _create_cohort_data(analysis_df)
-    for job_name in job_l1_order:
-        df_filtered = analysis_df[analysis_df['JOB_L1_NAME'] == job_name]
-        cohort_map_job[job_name] = _create_cohort_data(df_filtered)
-    data_bundle['직무별'] = cohort_map_job
+    dimensions = {
+        '부서별': 'DIVISION_NAME', '직무별': 'JOB_L1_NAME', '직위직급별': 'POSITION_NAME',
+        '성별': 'GENDER', '연령별': 'AGE_BIN', '경력연차별': 'CAREER_BIN',
+        '연봉구간별': 'SALARY_BIN', '지역별': 'REGION_CATEGORY', '계약별': 'CONT_CATEGORY'
+    }
 
-    # 직위직급별 코호트
-    cohort_map_pos = {}
-    cohort_map_pos['전체'] = _create_cohort_data(analysis_df)
-    for pos_name in position_order:
-        df_filtered = analysis_df[analysis_df['POSITION_NAME'] == pos_name]
-        cohort_map_pos[pos_name] = _create_cohort_data(df_filtered)
-    data_bundle['직위직급별'] = cohort_map_pos
+    for dim_ui_name, col_name in dimensions.items():
+        if col_name not in analysis_df.columns: continue
+
+        cohort_map = {}
+        cohort_map['전체'] = _create_cohort_data(analysis_df)
+        
+        for category_name in analysis_df[col_name].unique():
+            if pd.notna(category_name):
+                df_filtered = analysis_df[analysis_df[col_name] == category_name]
+                cohort_map[category_name] = _create_cohort_data(df_filtered)
+        
+        cohort_data_bundle[dim_ui_name] = cohort_map
     
-    return data_bundle
+    return {
+        "cohort_data_bundle": cohort_data_bundle,
+        "order_map": order_map
+    }
 
 @st.cache_data
 def prepare_proposal_07_data(
