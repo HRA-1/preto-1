@@ -883,149 +883,101 @@ def prepare_proposal_05_data(
 ):
     """
     제안 5: 조직 건강도 위험 신호 탐지 (연간 퇴사율)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 모든 차원의 연간 퇴사율 데이터를 생성합니다.
+    모든 차원에 대한 연간 퇴사율을 미리 계산하여 view 함수에 전달합니다.
     """
-    # 1. 필요한 모든 기본 데이터 로드
-    base_data = load_all_base_data()
-    emp_df = base_data["emp_df"]
-    department_info_df = base_data["department_info_df"]
-    job_info_df = base_data["job_info_df"]
-    position_info_df = base_data["position_info_df"]
-    career_info_df = base_data["career_info_df"]
-    salary_contract_info_df = base_data["salary_contract_info_df"]
-    region_info_df = base_data["region_info_df"]
-    contract_info_df = base_data["contract_info_df"]
-    department_df = base_data["department_df"]
-    job_df = base_data["job_df"]
-    position_df = base_data["position_df"]
-    region_df = base_data["region_df"]
-
-    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성 (prepare_proposal_01_data와 동일)
-    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
-    emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
-    emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
-    emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
+    # 1. 월별 데이터 및 퇴사자 데이터 로드
+    monthly_df = _get_monthly_employee_state_df()
     
-    first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
-    first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
-    first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
-    last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
-    last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
-    last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    # 2. 글로벌 필터 적용
+    analysis_df = monthly_df.copy()
+    if filter_division != '전체': analysis_df = analysis_df[analysis_df['DIVISION_NAME'] == filter_division]
+    if filter_job_l1 != '전체': analysis_df = analysis_df[analysis_df['JOB_L1_NAME'] == filter_job_l1]
+    if filter_position != '전체': analysis_df = analysis_df[analysis_df['POSITION_NAME'] == filter_position]
+    if filter_gender != '전체': analysis_df = analysis_df[analysis_df['GENDER'] == filter_gender]
+    if filter_age_bin != '전체': analysis_df = analysis_df[analysis_df['AGE_BIN'] == filter_age_bin]
+    if filter_career_bin != '전체': analysis_df = analysis_df[analysis_df['CAREER_BIN'] == filter_career_bin]
+    if filter_salary_bin != '전체': analysis_df = analysis_df[analysis_df['SALARY_BIN'] == filter_salary_bin]
+    if filter_region != '전체': analysis_df = analysis_df[analysis_df['REGION_CATEGORY'] == filter_region]
+    if filter_contract != '전체': analysis_df = analysis_df[analysis_df['CONT_CATEGORY'] == filter_contract]
 
-    dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
-    parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
-    dept_name_map = department_df.set_index('DEP_ID')['DEP_NAME'].to_dict()
-    job_df_indexed = job_df.set_index('JOB_ID')
-    parent_map_job = job_df_indexed['UP_JOB_ID'].to_dict()
-    job_name_map = job_df.set_index('JOB_ID')['JOB_NAME'].to_dict()
+    if analysis_df.empty:
+        return {"turnover_data": pd.DataFrame(), "order_map": order_map}
 
-    first_dept['DIVISION_NAME'] = first_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
-    first_job['JOB_L1_NAME'] = first_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
-    first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
-    last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
-    last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
+    analysis_df['YEAR'] = analysis_df['PERIOD_DT'].dt.year
+    leavers_df = analysis_df[analysis_df['OUT_DATE'].notna()].copy()
+    leavers_df = leavers_df.sort_values('PERIOD_DT').groupby('EMP_ID').last().reset_index()
+    leavers_df['LEAVER_YEAR'] = leavers_df['OUT_DATE'].dt.year
 
-    emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
-    emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
-    emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
+    # 3. 모든 차원에 대한 퇴사율 계산
+    all_dimensions = [
+        'DIVISION_NAME', 'OFFICE_NAME', 'JOB_L1_NAME', 'JOB_L2_NAME', 
+        'POSITION_NAME', 'GENDER', 'AGE_BIN', 'CAREER_BIN', 
+        'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+    ]
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
-    emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
-    emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
-    emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
-    emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
+    all_turnover_data = []
 
-    # 3. 글로벌 필터 적용
-    filtered_emps_df = emp_details.copy()
-    if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
-    if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
-    if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
-    if filter_gender != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['GENDER'] == filter_gender]
-    if filter_age_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['AGE_BIN'] == filter_age_bin]
-    if filter_career_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CAREER_BIN'] == filter_career_bin]
-    if filter_salary_bin != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['SALARY_BIN'] == filter_salary_bin]
-    if filter_region != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['REGION_CATEGORY'] == filter_region]
-    if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
-    
-    filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
-    if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame(), "overall_turnover_df": pd.DataFrame()}
-
-    # 4. 필터링된 직원 대상 연간 퇴사율 계산
-    leaver_years = emp_df.dropna(subset=['OUT_DATE'])['OUT_DATE'].dt.year.unique()
-    analysis_years = sorted([y for y in leaver_years if y < datetime.datetime.now().year])
-    
-    turnover_records = []
-    overall_turnover_records = []
-
-    pos_info_with_name = pd.merge(position_info_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
-    pos_info_sorted = pos_info_with_name.sort_values('GRADE_START_DATE')
-
+    # 3. 연도별로 루프를 돌며 계산
+    analysis_years = sorted(analysis_df['YEAR'].unique())
     for year in analysis_years:
-        year_start, year_end = pd.to_datetime(f'{year}-01-01'), pd.to_datetime(f'{year}-12-31')
         
-        leavers_in_year = emp_df[(emp_df['OUT_DATE'] >= year_start) & (emp_df['OUT_DATE'] <= year_end) & (emp_df['EMP_ID'].isin(filtered_emp_ids))]
-        active_in_year = emp_df[(emp_df['IN_DATE'] <= year_end) & (emp_df['OUT_DATE'].isnull() | (emp_df['OUT_DATE'] >= year_start)) & (emp_df['EMP_ID'].isin(filtered_emp_ids))]
+        year_df = analysis_df[analysis_df['YEAR'] == year]
+        year_leavers_df = leavers_df[leavers_df['LEAVER_YEAR'] == year]
+
+        # 3-1. '전체' 퇴사율 계산
+        # 월별 재직자 수를 센 뒤, 연평균 계산
+        monthly_headcount = year_df.groupby('PERIOD_DT')['EMP_ID'].nunique()
+        avg_headcount_total = monthly_headcount.mean()
+        leavers_count_total = year_leavers_df['EMP_ID'].nunique()
         
-        if active_in_year.empty: continue
+        rate = (leavers_count_total / avg_headcount_total) * 100 if avg_headcount_total > 0 else 0
+        all_turnover_data.append({'YEAR': year, 'DIMENSION': '전체', 'CATEGORY': '전체', 'TURNOVER_RATE': rate})
 
-        overall_rate = (len(leavers_in_year) / len(active_in_year)) * 100
-        overall_turnover_records.append({'YEAR': year, 'TURNOVER_RATE': overall_rate})
+        # 3-2. 각 차원별 퇴사율 계산
+        for dim in all_dimensions:
+            if dim not in year_df.columns: continue
+
+            # 분자: 해당 연도, 해당 차원의 퇴사자 수
+            leavers_counts = year_leavers_df.groupby(dim, observed=False)['EMP_ID'].nunique()
+
+            # 분모: 해당 연도, 해당 차원의 월평균 재직자 수
+            # pivot_table을 사용하여 더 안전하게 계산
+            monthly_pivot = year_df.pivot_table(
+                index='PERIOD_DT', 
+                columns=dim, 
+                values='EMP_ID', 
+                aggfunc='nunique',
+                observed=False
+            )
+            avg_headcount = monthly_pivot.mean() # 각 컬럼(카테고리)의 평균을 계산
             
-        if leavers_in_year.empty: continue
+            # 퇴사율 계산
+            turnover_rates = (leavers_counts / avg_headcount).fillna(0) * 100
             
-        leavers_with_attrs = pd.merge_asof(leavers_in_year[['EMP_ID', 'OUT_DATE']].sort_values('OUT_DATE'), dept_info_sorted, left_on='OUT_DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
-        leavers_with_attrs = pd.merge_asof(leavers_with_attrs.sort_values('OUT_DATE'), job_info_sorted, left_on='OUT_DATE', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
-        leavers_with_attrs = pd.merge_asof(leavers_with_attrs.sort_values('OUT_DATE'), pos_info_sorted, left_on='OUT_DATE', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
-        
-        active_with_attrs = pd.merge_asof(active_in_year[['EMP_ID', 'IN_DATE']].sort_values('IN_DATE'), dept_info_sorted, left_on='IN_DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
-        active_with_attrs = pd.merge_asof(active_with_attrs.sort_values('IN_DATE'), job_info_sorted, left_on='IN_DATE', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
-        active_with_attrs = pd.merge_asof(active_with_attrs.sort_values('IN_DATE'), pos_info_sorted, left_on='IN_DATE', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
-
-        for df in [leavers_with_attrs, active_with_attrs]:
-            if not df.empty:
-                parent_info = df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
-                df[['DIVISION_NAME', 'OFFICE_NAME']] = parent_info
-                df['JOB_L1_NAME'] = df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
-                df['JOB_L2_NAME'] = df['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
-
-        dimensions = {
-            'DIVISION': ['DIVISION_NAME'], 'OFFICE': ['DIVISION_NAME', 'OFFICE_NAME'],
-            'JOB_L1': ['JOB_L1_NAME'], 'JOB_L2': ['JOB_L1_NAME', 'JOB_L2_NAME'],
-            'POSITION': ['POSITION_NAME'], 'GRADE': ['POSITION_NAME', 'GRADE_ID'],
-        }
-
-        for dim_name, cols in dimensions.items():
-            leavers_grouped = leavers_with_attrs.dropna(subset=cols).groupby(cols, observed=False).size()
-            headcount_grouped = active_with_attrs.dropna(subset=cols).groupby(cols, observed=False).size()
-            
-            turnover_rates = (leavers_grouped / headcount_grouped * 100).fillna(0)
-
-            for group_keys, rate in turnover_rates.items():
-                record = {'YEAR': year, 'GROUP_TYPE': dim_name, 'TURNOVER_RATE': rate}
-                keys = [group_keys] if isinstance(group_keys, str) else group_keys
+            for category, rate in turnover_rates.items():
+                if pd.isna(category): continue
                 
-                if 'NAME' in dim_name: record['GROUP_NAME'] = keys[-1]
-                if dim_name == 'OFFICE': record['DIVISION_NAME'], record['GROUP_NAME'] = keys
-                elif dim_name == 'JOB_L2': record['JOB_L1_NAME'], record['GROUP_NAME'] = keys
-                elif dim_name == 'GRADE': record['POSITION_NAME'], record['GROUP_NAME'] = keys
-                else: record['GROUP_NAME'] = keys[0]
-                turnover_records.append(record)
+                record = {'YEAR': year, 'DIMENSION': dim, 'CATEGORY': category, 'TURNOVER_RATE': rate}
+                # 드릴다운을 위한 상위 카테고리 정보 추가
+                if dim == 'OFFICE_NAME':
+                    parent_div = year_df[year_df['OFFICE_NAME'] == category]['DIVISION_NAME'].iloc[0]
+                    record['PARENT_DIM'] = parent_div
+                elif dim == 'JOB_L2_NAME':
+                    parent_job = year_df[year_df['JOB_L2_NAME'] == category]['JOB_L1_NAME'].iloc[0]
+                    record['PARENT_DIM'] = parent_job
+                
+                all_turnover_data.append(record)
+    
+    # --- [수정된 부분 끝] ---
 
-    analysis_df = pd.DataFrame(turnover_records)
-    overall_turnover_df = pd.DataFrame(overall_turnover_records)
+    final_turnover_df = pd.DataFrame(all_turnover_data)
+    final_turnover_df.dropna(subset=['YEAR'], inplace=True)
+    final_turnover_df['YEAR'] = final_turnover_df['YEAR'].astype(int)
 
-    return {"analysis_df": analysis_df, "overall_turnover_df": overall_turnover_df}
+    return {
+        "turnover_data": final_turnover_df,
+        "order_map": order_map
+    }
 
 @st.cache_data
 def prepare_proposal_06_data(
