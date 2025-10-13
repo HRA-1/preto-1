@@ -1239,7 +1239,6 @@ def prepare_proposal_08_data(
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
     emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
     
-    # 이 분석은 '마지막' 상태 기준이므로 last_ 사용, 필터 기준은 first_ 사용
     first_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').first().reset_index()
     first_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').first().reset_index()
     first_pos = position_info_df.sort_values('GRADE_START_DATE').groupby('EMP_ID').first().reset_index()
@@ -1271,12 +1270,9 @@ def prepare_proposal_08_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -1293,14 +1289,14 @@ def prepare_proposal_08_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 4. 필터링된 직원들만을 대상으로 인력 유지 현황 분석 데이터 생성
     analysis_df = emp_details[emp_details['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'CURRENT_EMP_YN', 'TENURE_YEARS']].copy()
     
     # 모든 직원의 마지막 직무 및 부서 정보 가져오기
-    last_job = job_info_df.sort_values('JOB_APP_START_DATE').groupby('EMP_ID').last()
-    last_dept = department_info_df.sort_values('DEP_APP_START_DATE').groupby('EMP_ID').last()
+    last_job = job_info_df[job_info_df['EMP_ID'].isin(filtered_emp_ids)].sort_values('JOB_APP_START_DATE').groupby('EMP_ID').last()
+    last_dept = department_info_df[department_info_df['EMP_ID'].isin(filtered_emp_ids)].sort_values('DEP_APP_START_DATE').groupby('EMP_ID').last()
     
     last_job['JOB_CATEGORY'] = last_job['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
     last_dept['DIVISION_NAME'] = last_dept['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
@@ -1314,7 +1310,7 @@ def prepare_proposal_08_data(
     analysis_df['STATUS'] = np.where(analysis_df['CURRENT_EMP_YN'] == 'Y', '재직자', '퇴사자')
     analysis_df = analysis_df.dropna(subset=['JOB_CATEGORY', 'DIVISION_NAME', 'POSITION_NAME'])
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_09_data(
