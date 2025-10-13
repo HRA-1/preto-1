@@ -1325,8 +1325,7 @@ def prepare_proposal_09_data(
     filter_contract='전체'
 ):
     """
-    제안 9: 조직 활력도 진단 (연간 직무 이동률)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 모든 차원의 연간 직무 이동률 데이터를 생성합니다.
+    제안 9: 조직 활력도 진단 (연간 직무 이동률) - 단순화 버전
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -1344,7 +1343,6 @@ def prepare_proposal_09_data(
     region_df = base_data["region_df"]
 
     # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
-    # (이전 함수들과 동일한 로직을 사용하여 emp_details 생성)
     emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
@@ -1381,17 +1379,13 @@ def prepare_proposal_09_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
     filtered_emps_df = emp_details.copy()
-    # ... (9개 필터 if 문 전체 블록) ...
     if filter_division != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['DIVISION_NAME'] == filter_division]
     if filter_job_l1 != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['JOB_L1_NAME'] == filter_job_l1]
     if filter_position != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['POSITION_NAME'] == filter_position]
@@ -1403,22 +1397,24 @@ def prepare_proposal_09_data(
     if filter_contract != '전체': filtered_emps_df = filtered_emps_df[filtered_emps_df['CONT_CATEGORY'] == filter_contract]
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
+    
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame(), "overall_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "overall_df": pd.DataFrame(), "order_map": order_map}
 
-    # 4. 필터링된 직원 대상 연간 직무 이동률 계산
+    # 3. 필터링된 직원 대상 연간 직무 이동률 계산
     job_changes = job_info_df[job_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
     job_changes = pd.merge(job_changes, emp_df[['EMP_ID', 'IN_DATE']], on='EMP_ID', how='left')
-    job_changes = job_changes[job_changes['JOB_APP_START_DATE'] > job_changes['IN_DATE']] # 첫 직무 제외
+    job_changes = job_changes[job_changes['JOB_APP_START_DATE'] > job_changes['IN_DATE']]
     job_changes['YEAR'] = job_changes['JOB_APP_START_DATE'].dt.year
 
     analysis_records = []
     overall_records = []
     all_years = sorted(job_changes['YEAR'].unique())
     
-    pos_info_with_name = pd.merge(position_info_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
-    pos_info_sorted = pos_info_with_name.sort_values('GRADE_START_DATE')
+    # 정렬된 이력 테이블 준비
     dept_info_sorted = department_info_df.sort_values('DEP_APP_START_DATE')
+    job_info_sorted = job_info_df.sort_values('JOB_APP_START_DATE')
+    pos_info_sorted = position_info_df.sort_values('GRADE_START_DATE')
 
     for year in all_years:
         year_end = pd.to_datetime(f'{year}-12-31')
@@ -1427,45 +1423,46 @@ def prepare_proposal_09_data(
         
         if active_in_year.empty: continue
 
+        # '전체 평균' 이동률 계산
         overall_rate = (changes_in_year['EMP_ID'].nunique() / active_in_year['EMP_ID'].nunique()) * 100
         overall_records.append({'YEAR': year, 'MOBILITY_RATE': overall_rate})
             
-        # 재직자(분모)와 이동자(분자)의 연말 기준 속성 부여
+        # 속성 부여에 필요한 데이터프레임 생성
         active_in_year['DATE_SNAPSHOT'] = year_end
-        active_with_attrs = pd.merge_asof(active_in_year.sort_values('DATE_SNAPSHOT'), dept_info_sorted, left_on='DATE_SNAPSHOT', right_on='DEP_APP_START_DATE', by='EMP_ID')
-        active_with_attrs = pd.merge_asof(active_with_attrs.sort_values('DATE_SNAPSHOT'), pos_info_sorted, left_on='DATE_SNAPSHOT', right_on='GRADE_START_DATE', by='EMP_ID')
-        
         changes_in_year['DATE_SNAPSHOT'] = changes_in_year['JOB_APP_START_DATE']
-        changes_with_attrs = pd.merge_asof(changes_in_year.sort_values('DATE_SNAPSHOT'), dept_info_sorted, left_on='DATE_SNAPSHOT', right_on='DEP_APP_START_DATE', by='EMP_ID')
-        changes_with_attrs = pd.merge_asof(changes_with_attrs.sort_values('DATE_SNAPSHOT'), pos_info_sorted, left_on='DATE_SNAPSHOT', right_on='GRADE_START_DATE', by='EMP_ID')
         
-        for df in [active_with_attrs, changes_with_attrs]:
-            parent_info = df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
-            df[['DIVISION_NAME', 'OFFICE_NAME']] = parent_info
+        # 분석에 필요한 속성 정보들을 한 번에 병합
+        attrs_to_merge = filtered_emps_df[[
+            'EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME', 'GENDER', 
+            'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+        ]].drop_duplicates(subset=['EMP_ID'])
 
-        # 각 차원별 이동률 계산
-        dimensions = {
-            'DIVISION': ['DIVISION_NAME'], 'OFFICE': ['DIVISION_NAME', 'OFFICE_NAME'],
-            'POSITION': ['POSITION_NAME'], 'GRADE': ['POSITION_NAME', 'GRADE_ID']
-        }
+        active_with_attrs = pd.merge(active_in_year, attrs_to_merge, on='EMP_ID', how='left')
+        changes_with_attrs = pd.merge(changes_in_year, attrs_to_merge, on='EMP_ID', how='left')
 
-        for dim_name, cols in dimensions.items():
-            headcount_grouped = active_with_attrs.dropna(subset=cols).groupby(cols, observed=False)['EMP_ID'].nunique()
-            changes_grouped = changes_with_attrs.dropna(subset=cols).groupby(cols, observed=False)['EMP_ID'].nunique()
+        # 분석할 최상위 차원 목록
+        top_level_dimensions = [
+            'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME', 'GENDER', 
+            'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+        ]
+
+        for dim_col in top_level_dimensions:
+            if dim_col not in active_with_attrs.columns or dim_col not in changes_with_attrs.columns:
+                continue
+            
+            headcount_grouped = active_with_attrs.dropna(subset=[dim_col]).groupby(dim_col, observed=False)['EMP_ID'].nunique()
+            changes_grouped = changes_with_attrs.dropna(subset=[dim_col]).groupby(dim_col, observed=False)['EMP_ID'].nunique()
             mobility_rates = (changes_grouped / headcount_grouped * 100).fillna(0)
 
-            for group_keys, rate in mobility_rates.items():
-                record = {'YEAR': year, 'GROUP_TYPE': dim_name, 'MOBILITY_RATE': rate}
-                keys = [group_keys] if isinstance(group_keys, str) else group_keys
-                if dim_name == 'OFFICE': record['DIVISION_NAME'], record['GROUP_NAME'] = keys
-                elif dim_name == 'GRADE': record['POSITION_NAME'], record['GROUP_NAME'] = keys
-                else: record['GROUP_NAME'] = keys[0]
+            for group_name, rate in mobility_rates.items():
+                if pd.isna(group_name): continue
+                record = {'YEAR': year, 'GROUP_TYPE': dim_col, 'GROUP_NAME': group_name, 'MOBILITY_RATE': rate}
                 analysis_records.append(record)
     
     analysis_df = pd.DataFrame(analysis_records)
     overall_df = pd.DataFrame(overall_records)
 
-    return {"analysis_df": analysis_df, "overall_df": overall_df}
+    return {"analysis_df": analysis_df, "overall_df": overall_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_10_data(
