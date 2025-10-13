@@ -1110,10 +1110,10 @@ def prepare_proposal_07_data(
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
     emp_df = base_data["emp_df"]
-    career_info_df = base_data["career_info_df"]
     department_info_df = base_data["department_info_df"]
     job_info_df = base_data["job_info_df"]
     position_info_df = base_data["position_info_df"]
+    career_info_df = base_data["career_info_df"]
     salary_contract_info_df = base_data["salary_contract_info_df"]
     region_info_df = base_data["region_info_df"]
     contract_info_df = base_data["contract_info_df"]
@@ -1122,7 +1122,7 @@ def prepare_proposal_07_data(
     position_df = base_data["position_df"]
     region_df = base_data["region_df"]
 
-    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성 (prepare_proposal_01_data와 동일)
+    # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
     emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
@@ -1159,12 +1159,9 @@ def prepare_proposal_07_data(
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -1181,7 +1178,7 @@ def prepare_proposal_07_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 4. 필터링된 직원들만을 대상으로 재직기간 분석 데이터 생성
     # 경력 유형 계산
@@ -1189,20 +1186,21 @@ def prepare_proposal_07_data(
         lambda x: '관련 경력' if 'Y' in x.values else '비관련 경력'
     ).reset_index().rename(columns={'CAREER_REL_YN': 'CAREER_TYPE'})
     
-    # 분석의 기반이 될 데이터프레임 생성
+    # 분석의 기반이 될 데이터프레임 생성 (필터링된 직원 대상)
     analysis_df = emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)][['EMP_ID', 'DURATION']].copy()
+    analysis_df['TENURE_YEARS'] = analysis_df['DURATION'] / 365.25
+    
+    # 경력 유형 병합
     analysis_df = pd.merge(analysis_df, career_summary, on='EMP_ID', how='left')
     analysis_df['CAREER_TYPE'] = analysis_df['CAREER_TYPE'].fillna('경력 없음')
-    analysis_df['TENURE_YEARS'] = analysis_df['DURATION'] / 365.25
 
-    # 첫 직무 및 첫 부서 정보 병합
-    analysis_df = pd.merge(analysis_df, first_job[['EMP_ID', 'JOB_L1_NAME']].rename(columns={'JOB_L1_NAME': 'JOB_CATEGORY'}), on='EMP_ID', how='left')
-    analysis_df = pd.merge(analysis_df, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
-    analysis_df = pd.merge(analysis_df, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
+    # 분석에 필요한 다른 차원 정보 병합 (filtered_emps_df에서 가져옴)
+    cols_to_merge = ['EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME']
+    analysis_df = pd.merge(analysis_df, filtered_emps_df[cols_to_merge].rename(columns={'JOB_L1_NAME':'JOB_CATEGORY'}), on='EMP_ID', how='left')
     
     analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'JOB_CATEGORY', 'POSITION_NAME'])
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_08_data(
