@@ -1477,8 +1477,7 @@ def prepare_proposal_10_data(
     filter_contract='전체'
 ):
     """
-    제안 10: 학력/경력과 초봉의 관계 분석
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 초봉 분석 데이터를 생성합니다.
+    제안 10: 학력/경력과 초봉의 관계 분석 (구조 개선 최종 버전)
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -1509,7 +1508,7 @@ def prepare_proposal_10_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -1530,16 +1529,13 @@ def prepare_proposal_10_data(
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -1556,39 +1552,55 @@ def prepare_proposal_10_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
-    # 4. 필터링된 직원 대상 초봉 분석 데이터 생성
-    # 초봉 정보
+    # 4. 필터링된 직원들(filtered_emp_ids)을 기준으로, 필요한 정보를 순차적으로 결합
+    # 4-1. 초봉 정보 (분석의 시작점)
     initial_contracts = salary_contract_info_df[
         (salary_contract_info_df['PAY_CATEGORY'] == '연봉') &
         (salary_contract_info_df['EMP_ID'].isin(filtered_emp_ids))
     ].sort_values('SAL_START_DATE').groupby('EMP_ID').first().reset_index()
-    initial_contracts = initial_contracts[['EMP_ID', 'SAL_AMOUNT']].rename(columns={'SAL_AMOUNT': 'INITIAL_SALARY'})
+    analysis_df = initial_contracts[['EMP_ID', 'SAL_AMOUNT']].rename(columns={'SAL_AMOUNT': 'INITIAL_SALARY'})
 
-    # 최종 학력 정보
-    school_history = school_info_df[school_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
-    school_history = pd.merge(school_history, school_df, on='SCHOOL_ID', how='left')
-    final_education = school_history.sort_values('GRAD_YEAR').groupby('EMP_ID').last().reset_index()
-    final_education = final_education[['EMP_ID', 'SCHOOL_LEVEL', 'MAJOR_CATEGORY']]
-
-    # 과거 총 경력 정보
+    # 4-2. 최종 학력 정보 병합
+    # 필터링된 직원의 학력 이력만 가져옴
+    school_history_filtered = school_info_df[school_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
+    
+    # 각 직원의 최종 학력 기록을 찾음 (이 테이블에 이미 MAJOR_CATEGORY가 있음)
+    final_education = school_history_filtered.sort_values('GRAD_YEAR').groupby('EMP_ID').last().reset_index()
+    
+    # SCHOOL_LEVEL 정보만 school_df에서 가져와 병합
+    final_education = pd.merge(final_education, school_df[['SCHOOL_ID', 'SCHOOL_LEVEL']], on='SCHOOL_ID', how='left')
+    
+    # 최종적으로 analysis_df에 병합
+    analysis_df = pd.merge(analysis_df, final_education[['EMP_ID', 'SCHOOL_LEVEL', 'MAJOR_CATEGORY']], on='EMP_ID', how='left')
+    
+    # 4-3. 과거 총 경력 정보 병합
     prior_career = career_info_df[career_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
-    prior_career_summary = prior_career.groupby('EMP_ID')['CAREER_DURATION'].sum().reset_index()
-    prior_career_summary['TOTAL_PRIOR_CAREER_YEARS'] = prior_career_summary['CAREER_DURATION'] / 365.25
-
-    # 최종 분석 데이터프레임 병합
-    analysis_df = pd.merge(initial_contracts, final_education, on='EMP_ID', how='inner')
-    analysis_df = pd.merge(analysis_df, prior_career_summary[['EMP_ID', 'TOTAL_PRIOR_CAREER_YEARS']], on='EMP_ID', how='left')
+    if not prior_career.empty:
+        prior_career_summary = prior_career.groupby('EMP_ID')['CAREER_DURATION'].sum().reset_index()
+        prior_career_summary['TOTAL_PRIOR_CAREER_YEARS'] = prior_career_summary['CAREER_DURATION'] / 365.25
+        analysis_df = pd.merge(analysis_df, prior_career_summary[['EMP_ID', 'TOTAL_PRIOR_CAREER_YEARS']], on='EMP_ID', how='left')
+    else:
+        analysis_df['TOTAL_PRIOR_CAREER_YEARS'] = 0
+    
     analysis_df['TOTAL_PRIOR_CAREER_YEARS'] = analysis_df['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
+    
+    # 5. 최종 가공 및 반환
     analysis_df = analysis_df.dropna(subset=['INITIAL_SALARY', 'SCHOOL_LEVEL', 'MAJOR_CATEGORY'])
+    if analysis_df.empty:
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
-    # 경력 그룹(Bin) 정보 추가
     bins = [-1, 3, 7, 100]
     labels = ['신입 (0~3년)', '주니어 (3~7년)', '시니어 (7년+)']
     analysis_df['CAREER_BIN'] = pd.cut(analysis_df['TOTAL_PRIOR_CAREER_YEARS'], bins=bins, labels=labels, right=True)
+    
+    # Categorical 타입 변환
+    if 'MAJOR_CATEGORY' in order_map:
+        analysis_df['MAJOR_CATEGORY'] = pd.Categorical(analysis_df['MAJOR_CATEGORY'], categories=order_map['MAJOR_CATEGORY'], ordered=True)
+    analysis_df['CAREER_BIN'] = pd.Categorical(analysis_df['CAREER_BIN'], categories=labels, ordered=True)
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_11_data(
