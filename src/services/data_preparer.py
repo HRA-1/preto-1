@@ -2301,7 +2301,7 @@ def prepare_proposal_16_data(
 
     filtered_emp_ids = filtered_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 3. 필터링된 직원들의 주말 근무 데이터 계산
     base_data = load_all_base_data()
@@ -2313,14 +2313,14 @@ def prepare_proposal_16_data(
     
     weekend_work_df = work_records[
         (~work_records['WORK_ETC'].isin(['휴가', '주말 휴무', '비번', '휴무'])) &
-        (work_records['DAY_OF_WEEK'] >= 5)
+        (work_records['DAY_OF_WEEK'] >= 5) # 5: Saturday, 6: Sunday
     ].copy()
     
+    # 주말 근무 기록이 전혀 없는 경우, 모든 값을 0으로 채운 analysis_df 반환
     if weekend_work_df.empty:
-        # 주말 근무 기록이 전혀 없는 경우, 모든 값을 0으로 채운 analysis_df 반환
         analysis_df = filtered_df.copy()
         analysis_df['WEEKEND_WORK_DAYS'] = 0
-        return {"analysis_df": analysis_df}
+        return {"analysis_df": analysis_df, "order_map": order_map}
 
     weekend_work_df['PAY_PERIOD'] = weekend_work_df['DATE'].dt.strftime('%Y-%m')
     
@@ -2329,9 +2329,12 @@ def prepare_proposal_16_data(
     avg_weekend_days = monthly_weekend_days.groupby('EMP_ID')['WEEKEND_WORK_DAYS'].mean().reset_index()
 
     # 4. 최종 분석 데이터프레임 생성
-    analysis_df = pd.merge(filtered_df, avg_weekend_days, on='EMP_ID', how='left').fillna(0)
+    # 필터링된 직원 정보에, 계산된 월평균 주말 근무일수를 병합
+    analysis_df = pd.merge(filtered_df, avg_weekend_days, on='EMP_ID', how='left')
+    # WEEKEND_WORK_DAYS 컬럼에만 fillna(0)을 적용합니다.
+    analysis_df['WEEKEND_WORK_DAYS'] = analysis_df['WEEKEND_WORK_DAYS'].fillna(0)
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_17_data(
