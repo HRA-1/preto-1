@@ -2161,7 +2161,7 @@ def prepare_proposal_15_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -2175,23 +2175,20 @@ def prepare_proposal_15_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-    
+
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -2208,7 +2205,7 @@ def prepare_proposal_15_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 4. 필터링된 직원들의 부서 이동 이벤트 식별
     dept_changes = department_info_df[department_info_df['EMP_ID'].isin(filtered_emp_ids)].sort_values(['EMP_ID', 'DEP_APP_START_DATE'])
@@ -2217,7 +2214,7 @@ def prepare_proposal_15_data(
     dept_changes = dept_changes.rename(columns={'DEP_APP_START_DATE': 'CHANGE_DATE'})
 
     if dept_changes.empty:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 5. 각 이동 이벤트별 전/후 초과근무 계산
     daily_work_filtered_df = daily_work_info_df[daily_work_info_df['EMP_ID'].isin(dept_changes['EMP_ID'].unique())].copy()
@@ -2236,10 +2233,10 @@ def prepare_proposal_15_data(
     
     analysis_df = pd.DataFrame(pattern_records)
     if analysis_df.empty:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
-    # 6. 부서 평균(Baseline) 계산
-    daily_work_with_dept = pd.merge_asof(daily_work_filtered_df.sort_values('DATE'), department_info_df.sort_values('DEP_APP_START_DATE'), left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
+    # 6. 부서 평균(Baseline) 계산 (전체 직원 기준)
+    daily_work_with_dept = pd.merge_asof(daily_work_info_df.sort_values('DATE'), department_info_df.sort_values('DEP_APP_START_DATE'), left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
     parent_info_daily = daily_work_with_dept['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
     daily_work_with_dept = pd.concat([daily_work_with_dept, parent_info_daily], axis=1)
     daily_work_with_dept = daily_work_with_dept.dropna(subset=['DIVISION_NAME', 'OFFICE_NAME'])
@@ -2251,24 +2248,16 @@ def prepare_proposal_15_data(
     parent_info = analysis_df['NEW_DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
     analysis_df = pd.concat([analysis_df, parent_info], axis=1)
     analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'OFFICE_NAME'])
-    
-    # Division 레벨 데이터
-    div_summary = analysis_df.groupby('DIVISION_NAME', observed=False)[['OT_BEFORE', 'OT_AFTER']].mean()
-    div_summary = pd.merge(div_summary, div_overall_avg, on='DIVISION_NAME').reset_index()
-    div_summary['GROUP_TYPE'] = 'Division'
-    
-    # Office 레벨 데이터
-    office_summary = analysis_df.groupby(['DIVISION_NAME', 'OFFICE_NAME'], observed=False)[['OT_BEFORE', 'OT_AFTER']].mean()
-    office_summary = pd.merge(office_summary, office_overall_avg, on=['DIVISION_NAME','OFFICE_NAME']).reset_index()
-    office_summary['GROUP_TYPE'] = 'Office'
 
-    # view에서 사용하기 편하도록 하나의 DataFrame으로 통합
-    div_summary = div_summary.rename(columns={'DIVISION_NAME': 'GROUP_NAME'})
-    office_summary = office_summary.rename(columns={'OFFICE_NAME': 'GROUP_NAME'})
+    # 부서 평균(DEPT_AVG)을 analysis_df에 병합
+    analysis_df = pd.merge(analysis_df, div_overall_avg, on='DIVISION_NAME', how='left', suffixes=('', '_div'))
+    analysis_df = pd.merge(analysis_df, office_overall_avg, on=['DIVISION_NAME', 'OFFICE_NAME'], how='left', suffixes=('', '_office'))
     
-    final_analysis_df = pd.concat([div_summary, office_summary], ignore_index=True)
+    # Office 레벨의 평균이 있으면 그것을 사용하고, 없으면 Division 레벨 평균 사용
+    analysis_df['DEPT_AVG'] = analysis_df['DEPT_AVG_office'].fillna(analysis_df['DEPT_AVG'])
+    analysis_df = analysis_df.drop(columns=['DEPT_AVG_div', 'DEPT_AVG_office'], errors='ignore')
 
-    return {"analysis_df": final_analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_16_data(
