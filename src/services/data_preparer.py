@@ -2350,8 +2350,7 @@ def prepare_proposal_17_data(
 ):
     """
     제안 17: 조직의 주간 리듬 분석 (요일별 업무 강도 및 휴가 패턴)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 분석에 필요한 3종의 상세 데이터
-    (초과근무, 연차사용, 총 근무일)를 생성합니다.
+    글로벌 필터를 적용하여, 분석에 필요한 3종의 상세 데이터를 생성합니다.
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -2385,7 +2384,7 @@ def prepare_proposal_17_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -2399,23 +2398,20 @@ def prepare_proposal_17_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-
+    
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -2432,24 +2428,35 @@ def prepare_proposal_17_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"overtime_df": pd.DataFrame(), "leave_df": pd.DataFrame(), "workable_days_df": pd.DataFrame()}
+        return {"overtime_df": pd.DataFrame(), "leave_df": pd.DataFrame(), "workable_days_df": pd.DataFrame(), "order_map": order_map}
 
     # 4. 필터링된 직원 대상, 주간 리듬 분석 데이터 생성
     start_date_filter = pd.to_datetime('2022-01-01')
     normal_work_emp_ids = work_info_df[work_info_df['WORK_SYS_ID'] == 'WS001']['EMP_ID'].unique()
     target_emp_ids = np.intersect1d(normal_work_emp_ids, filtered_emp_ids)
+    
+    pos_info_sorted = position_info_df.sort_values('GRADE_START_DATE')
+    job_info_sorted = job_info_df.sort_values('JOB_APP_START_DATE')
+    dept_info_sorted = department_info_df.sort_values('DEP_APP_START_DATE')
 
     # 헬퍼 함수: 시점별 속성 정보 부여
     def add_point_in_time_attributes(df):
-        df = df.sort_values('DATE')
-        df = pd.merge_asof(df, dept_info_sorted, left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
-        df = pd.merge_asof(df, job_info_sorted, left_on='DATE', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
-        df = pd.merge_asof(df, pos_info_sorted, left_on='DATE', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
+        df_sorted = df.sort_values('DATE')
+        df_merged = pd.merge_asof(df_sorted, dept_info_sorted, left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
+        df_merged = pd.merge_asof(df_merged, job_info_sorted, left_on='DATE', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
+        df_merged = pd.merge_asof(df_merged, pos_info_sorted, left_on='DATE', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
         
-        df['DIVISION_NAME'] = df['DEP_ID'].apply(lambda x: find_division_name_for_dept(x, dept_level_map, parent_map_dept, dept_name_map))
-        df['JOB_L1_NAME'] = df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
-        df = pd.merge(df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID', how='left')
-        return df.dropna(subset=['DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME'])
+        parent_info = df_merged['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
+        df_merged = pd.concat([df_merged, parent_info], axis=1)
+        df_merged['JOB_L1_NAME'] = df_merged['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+        df_merged['JOB_L2_NAME'] = df_merged['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
+        df_merged = pd.merge(df_merged, position_df[['POSITION_ID', 'POSITION_NAME']], on='POSITION_ID', how='left')
+
+        attrs_to_merge = ['EMP_ID', 'GENDER', 'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY']
+        emp_attrs = filtered_emps_df[attrs_to_merge].drop_duplicates(subset=['EMP_ID'])
+        df_merged = pd.merge(df_merged, emp_attrs, on='EMP_ID', how='left')
+        
+        return df_merged.dropna(subset=['DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME'])
 
     # 초과근무 데이터
     overtime_df = daily_work_info_df[(daily_work_info_df['EMP_ID'].isin(target_emp_ids)) & (pd.to_datetime(daily_work_info_df['DATE']) >= start_date_filter)].copy()
@@ -2470,7 +2477,8 @@ def prepare_proposal_17_data(
     return {
         "overtime_df": overtime_df, 
         "leave_df": leave_df, 
-        "workable_days_df": workable_days_df
+        "workable_days_df": workable_days_df,
+        "order_map": order_map
     }
 
 @st.cache_data
