@@ -2644,7 +2644,7 @@ def prepare_proposal_19_data(
 ):
     """
     제안 19: 퇴사 예측 선행 지표 분석 (퇴사 직전 휴가 사용 패턴)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 퇴사 예측 분석 데이터를 생성합니다.
+    글로벌 필터를 적용하여, 모든 차원의 퇴사자/재직자 휴가 사용 패턴 데이터를 생성합니다.
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -2662,9 +2662,9 @@ def prepare_proposal_19_data(
     region_df = base_data["region_df"]
     detailed_leave_info_df = base_data["detailed_leave_info_df"]
     leave_type_df = base_data["leave_type_df"]
-    
+
     # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
-    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE', 'CURRENT_EMP_YN']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
     emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
@@ -2675,7 +2675,7 @@ def prepare_proposal_19_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -2689,23 +2689,20 @@ def prepare_proposal_19_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-
+    
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -2722,56 +2719,94 @@ def prepare_proposal_19_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"leavers_df": pd.DataFrame(), "stayers_baseline": {}}
+        return {"leavers_df": pd.DataFrame(), "stayers_df": pd.DataFrame(), "order_map": order_map}
 
-    # 4. 필터링된 직원 대상 퇴사 직전 휴가 패턴 분석
+    # 4. 필터링된 직원들의 휴가 데이터 준비
     leave_df = pd.merge(detailed_leave_info_df, leave_type_df, on='LEAVE_TYPE_ID')
+    leave_df = leave_df[leave_df['EMP_ID'].isin(filtered_emp_ids)].copy()
     leave_df['DATE'] = pd.to_datetime(leave_df['DATE'])
     leave_df['LEAVE_LENGTH'] = pd.to_numeric(leave_df['LEAVE_LENGTH'])
 
-    # 4-1. 퇴사자 그룹 패턴 계산
-    leavers = emp_df[(emp_df['CURRENT_EMP_YN'] == 'N') & (emp_df['EMP_ID'].isin(filtered_emp_ids))][['EMP_ID', 'OUT_DATE']].copy()
-    leaver_leave_data = pd.merge(leavers, leave_df, on='EMP_ID', how='left')
+    # 5. 퇴사자(Leavers) 그룹 패턴 계산
+    leavers_base = filtered_emps_df[filtered_emps_df['CURRENT_EMP_YN'] == 'N'].copy()
+    leaver_leave_data = pd.merge(leavers_base, leave_df, on='EMP_ID', how='left')
     leaver_leave_data = leaver_leave_data[
         (leaver_leave_data['DATE'] < leaver_leave_data['OUT_DATE']) &
         (leaver_leave_data['DATE'] >= (leaver_leave_data['OUT_DATE'] - pd.DateOffset(months=12)))
     ].copy()
     
     if not leaver_leave_data.empty:
-        leaver_leave_data['MONTHS_BEFORE_LEAVING'] = (leaver_leave_data['OUT_DATE'].dt.year - leaver_leave_data['DATE'].dt.year) * 12 + (leaver_leave_data['OUT_DATE'].dt.month - leaver_leave_data['DATE'].dt.month)
-        leaver_pattern_df = leaver_leave_data.groupby(['EMP_ID', 'MONTHS_BEFORE_LEAVING'])['LEAVE_LENGTH'].sum().reset_index()
-    else:
-        leaver_pattern_df = pd.DataFrame(columns=['EMP_ID', 'MONTHS_BEFORE_LEAVING', 'LEAVE_LENGTH'])
+        leaver_leave_data['MONTHS_BEFORE_LEAVING'] = (leaver_leave_data['OUT_DATE'].dt.to_period('M') - leaver_leave_data['DATE'].dt.to_period('M')).apply(lambda x: x.n)
+        leaver_leave_data = leaver_leave_data[leaver_leave_data['MONTHS_BEFORE_LEAVING'] >= 0]
+    
+    # 6. 재직자(Stayers) 그룹 기준선(Baseline) 계산 (최근 1년 기준)
+    stayers_base = filtered_emps_df[filtered_emps_df['CURRENT_EMP_YN'] == 'Y'].copy()
+    end_date_stayers = datetime.datetime.now()
+    start_date_stayers = end_date_stayers - pd.DateOffset(months=12)
+    
+    stayer_leaves = leave_df[
+        (leave_df['EMP_ID'].isin(stayers_base['EMP_ID'])) &
+        (leave_df['DATE'] >= start_date_stayers) &
+        (leave_df['DATE'] <= end_date_stayers)
+    ].copy()
+    stayer_leaves = pd.merge(stayer_leaves, stayers_base, on='EMP_ID', how='left')
+    
+    # 7. 모든 차원에 대해 집계
+    leaver_records = []
+    stayer_records = []
+    
+    dimensions = [
+        'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME', 'GENDER', 
+        'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+    ]
+    
+    # '전체' 데이터 추가
+    leaver_pattern_overall = leaver_leave_data.groupby('MONTHS_BEFORE_LEAVING')['LEAVE_LENGTH'].sum() / leaver_leave_data['EMP_ID'].nunique()
+    stayer_baseline_overall = stayer_leaves['LEAVE_LENGTH'].sum() / stayers_base['EMP_ID'].nunique() / 12 if not stayers_base.empty else 0
 
-    # 4-2. 재직자 그룹 기준선(Baseline) 계산
-    stayers = emp_df[(emp_df['CURRENT_EMP_YN'] == 'Y') & (emp_df['EMP_ID'].isin(filtered_emp_ids))].copy()
-    stayer_leaves = leave_df[(leave_df['EMP_ID'].isin(stayers['EMP_ID'])) & (leave_df['DATE'].dt.year == 2024)]
-    stayer_monthly_avg_overall = (stayer_leaves['LEAVE_LENGTH'].sum() / stayers['EMP_ID'].nunique()) / 12 if not stayers.empty and stayers['EMP_ID'].nunique() > 0 else 0
-    
-    # 4-3. 퇴사자/재직자 그룹에 필터링 차원 정보 추가
-    leaver_pattern_df = pd.merge(leaver_pattern_df, filtered_emps_df[['EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME']], on='EMP_ID', how='left')
-    stayers_with_dims = pd.merge(stayers, filtered_emps_df[['EMP_ID', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME']], on='EMP_ID', how='left')
-    stayer_leaves_with_dims = pd.merge(stayer_leaves, stayers_with_dims, on='EMP_ID', how='left')
-    
-    # 4-4. 그룹별 집계
-    leavers_overall = leaver_pattern_df.groupby('MONTHS_BEFORE_LEAVING')['LEAVE_LENGTH'].mean().reset_index()
-    leavers_by_div = leaver_pattern_df.groupby(['DIVISION_NAME', 'MONTHS_BEFORE_LEAVING'], observed=False)['LEAVE_LENGTH'].mean().reset_index()
-    leavers_by_job = leaver_pattern_df.groupby(['JOB_L1_NAME', 'MONTHS_BEFORE_LEAVING'], observed=False)['LEAVE_LENGTH'].mean().reset_index()
-    leavers_by_pos = leaver_pattern_df.groupby(['POSITION_NAME', 'MONTHS_BEFORE_LEAVING'], observed=False)['LEAVE_LENGTH'].mean().reset_index()
-    
-    stayer_avg_by_div = stayer_leaves_with_dims.groupby('DIVISION_NAME', observed=False)['LEAVE_LENGTH_x'].sum() / stayers_with_dims.groupby('DIVISION_NAME', observed=False).size()
-    stayer_avg_by_job = stayer_leaves_with_dims.groupby('JOB_L1_NAME', observed=False)['LEAVE_LENGTH_x'].sum() / stayers_with_dims.groupby('JOB_L1_NAME', observed=False).size()
-    stayer_avg_by_pos = stayer_leaves_with_dims.groupby('POSITION_NAME', observed=False)['LEAVE_LENGTH_x'].sum() / stayers_with_dims.groupby('POSITION_NAME', observed=False).size()
+    for month, rate in leaver_pattern_overall.items():
+        leaver_records.append({'GROUP_TYPE': '전체', 'GROUP_NAME': '전체', 'MONTHS_BEFORE_LEAVING': month, 'LEAVE_DAYS_AVG': rate})
+    stayer_records.append({'GROUP_TYPE': '전체', 'GROUP_NAME': '전체', 'BASELINE_LEAVE_DAYS': stayer_baseline_overall})
 
+    # 각 차원별 데이터 추가
+    for dim in dimensions:
+        if dim not in leaver_leave_data.columns or dim not in stayer_leaves.columns:
+            continue
+            
+        leaver_n_unique = leaver_leave_data.groupby(dim, observed=False)['EMP_ID'].nunique()
+        stayer_n_unique = stayers_base.groupby(dim, observed=False)['EMP_ID'].nunique()
+        
+        leaver_pattern_dim = leaver_leave_data.groupby([dim, 'MONTHS_BEFORE_LEAVING'], observed=False)['LEAVE_LENGTH'].sum().reset_index()
+        leaver_pattern_dim = pd.merge(leaver_pattern_dim, leaver_n_unique.rename('N_UNIQUE'), left_on=dim, right_index=True)
+        leaver_pattern_dim['LEAVE_DAYS_AVG'] = leaver_pattern_dim['LEAVE_LENGTH'] / leaver_pattern_dim['N_UNIQUE']
+        
+        stayer_baseline_dim = (stayer_leaves.groupby(dim, observed=False)['LEAVE_LENGTH'].sum() / 12) / stayer_n_unique
+        
+        # DataFrame이 아닌 dict 형태로 leaver_records에 추가
+        for _, row in leaver_pattern_dim.iterrows():
+            leaver_records.append({
+                'GROUP_TYPE': dim,
+                'GROUP_NAME': row[dim],
+                'MONTHS_BEFORE_LEAVING': row['MONTHS_BEFORE_LEAVING'],
+                'LEAVE_DAYS_AVG': row['LEAVE_DAYS_AVG']
+            })
+        
+        # Series를 dict로 변환하여 stayer_records에 추가
+        for group_name, baseline_value in stayer_baseline_dim.items():
+            stayer_records.append({
+                'GROUP_TYPE': dim,
+                'GROUP_NAME': group_name,
+                'BASELINE_LEAVE_DAYS': baseline_value
+            })
+
+    # pd.concat 대신 pd.DataFrame()을 사용하여 딕셔너리 리스트로부터 생성
+    final_leavers_df = pd.DataFrame(leaver_records).dropna(subset=['GROUP_NAME'])
+    final_stayers_df = pd.DataFrame(stayer_records).dropna(subset=['GROUP_NAME'])
+    
     return {
-        "leavers_overall": leavers_overall,
-        "leavers_by_div": leavers_by_div,
-        "leavers_by_job": leavers_by_job,
-        "leavers_by_pos": leavers_by_pos,
-        "stayers_baseline_overall": stayer_monthly_avg_overall,
-        "stayers_baseline_by_div": stayer_avg_by_div / 12,
-        "stayers_baseline_by_job": stayer_avg_by_job / 12,
-        "stayers_baseline_by_pos": stayer_avg_by_pos / 12
+        "leavers_df": final_leavers_df, 
+        "stayers_df": final_stayers_df, 
+        "order_map": order_map
     }
 
 @st.cache_data
