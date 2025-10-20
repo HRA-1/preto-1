@@ -2495,7 +2495,7 @@ def prepare_proposal_18_data(
 ):
     """
     제안 18: 직원 번아웃 신호 감지 (연차-병가 사용 패턴 분석)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 연차/병가 사용 패턴 분석 데이터를 생성합니다.
+    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, "모든 연도"의 연차/병가 사용 패턴 데이터를 생성합니다.
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -2515,7 +2515,7 @@ def prepare_proposal_18_data(
     leave_type_df = base_data["leave_type_df"]
 
     # 2. 글로벌 필터링을 위한 마스터 직원 테이블 생성
-    emp_details = emp_df[['EMP_ID', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
+    emp_details = emp_df[['EMP_ID', 'NAME', 'GENDER', 'PERSONAL_ID', 'DURATION', 'IN_DATE', 'OUT_DATE']].copy()
     emp_details['GENDER'] = emp_details['GENDER'].map({'M': '남성', 'F': '여성'})
     emp_details['AGE'] = emp_details['PERSONAL_ID'].apply(calculate_age)
     emp_details['TENURE_YEARS'] = emp_details['DURATION'] / 365.25
@@ -2526,7 +2526,7 @@ def prepare_proposal_18_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -2540,23 +2540,20 @@ def prepare_proposal_18_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-
+    
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -2573,7 +2570,7 @@ def prepare_proposal_18_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
     # 4. 필터링된 직원들의 연차/병가 데이터 준비
     leave_df = detailed_leave_info_df[detailed_leave_info_df['EMP_ID'].isin(filtered_emp_ids)].copy()
@@ -2588,36 +2585,50 @@ def prepare_proposal_18_data(
 
     # 5. 모든 연도/직원에 대한 뼈대(Scaffold) 생성 후 데이터 병합
     scaffold_records = []
-    analysis_years_list = range(emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)]['IN_DATE'].min().year, datetime.datetime.now().year + 1)
+    
+    filtered_emps_for_scaffold = emp_df[emp_df['EMP_ID'].isin(filtered_emp_ids)]
+    if filtered_emps_for_scaffold.empty:
+         return {"analysis_df": pd.DataFrame(), "order_map": order_map}
+         
+    analysis_years_list = range(filtered_emps_for_scaffold['IN_DATE'].min().year, datetime.datetime.now().year + 1)
+    
     for year in analysis_years_list:
         year_start, year_end = pd.to_datetime(f'{year}-01-01'), pd.to_datetime(f'{year}-12-31')
-        active_emps_in_year = emp_df[(emp_df['IN_DATE'] <= year_end) & (emp_df['OUT_DATE'].isnull() | (emp_df['OUT_DATE'] >= year_start)) & (emp_df['EMP_ID'].isin(filtered_emp_ids))]['EMP_ID'].unique()
+        
+        active_emps_in_year = filtered_emps_for_scaffold[
+            (filtered_emps_for_scaffold['IN_DATE'] <= year_end) & 
+            (filtered_emps_for_scaffold['OUT_DATE'].isnull() | (filtered_emps_for_scaffold['OUT_DATE'] >= year_start))
+        ]['EMP_ID'].unique()
+        
         for emp_id in active_emps_in_year:
             scaffold_records.append({'YEAR': year, 'EMP_ID': emp_id})
+            
     scaffold_df = pd.DataFrame(scaffold_records)
+    if scaffold_df.empty:
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
     
     analysis_df = pd.merge(scaffold_df, leave_summary, on=['YEAR', 'EMP_ID'], how='left')
     analysis_df[required_leave_types] = analysis_df[required_leave_types].fillna(0)
 
-    # 6. 분석에 필요한 추가 정보(이름, 부서) 병합
-    analysis_df['YEAR_START_DATE'] = pd.to_datetime(analysis_df['YEAR'].astype(str) + '-01-01')
-    analysis_df = analysis_df.sort_values(['YEAR_START_DATE', 'EMP_ID'])
-    dept_info_sorted = department_info_df.sort_values(['DEP_APP_START_DATE', 'EMP_ID'])
-    analysis_df = pd.merge_asof(analysis_df, dept_info_sorted[['EMP_ID', 'DEP_APP_START_DATE', 'DEP_ID']], left_on='YEAR_START_DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
+    # 6. 분석에 필요한 추가 정보(이름, 부서 등) 병합
+    cols_to_merge = [
+        'EMP_ID', 'NAME', 'DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME',
+        'GENDER', 'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY'
+    ]
+    # filtered_emps_df에서 중복 제거
+    emp_attrs = filtered_emps_df[cols_to_merge].drop_duplicates(subset=['EMP_ID'])
+    analysis_df = pd.merge(analysis_df, emp_attrs, on='EMP_ID', how='left')
     
-    parent_info = analysis_df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
-    analysis_df = pd.concat([analysis_df, parent_info], axis=1)
-    analysis_df = pd.merge(analysis_df, emp_df[['EMP_ID', 'NAME']], on='EMP_ID', how='left')
-    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME'])
-
     # 7. 지터링(Jittering)을 위한 데이터 추가
     jitter_strength = 0.15
     num_points = len(analysis_df)
-    np.random.seed(42) # 재현성을 위해 시드 재설정
+    np.random.seed(42)
     analysis_df['연차휴가_jitter'] = analysis_df['연차휴가'] + np.random.uniform(-jitter_strength, jitter_strength, num_points)
     analysis_df['병휴가_jitter'] = analysis_df['병휴가'] + np.random.uniform(-jitter_strength, jitter_strength, num_points)
+    
+    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'JOB_L1_NAME', 'POSITION_NAME'])
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
 
 @st.cache_data
 def prepare_proposal_19_data(
