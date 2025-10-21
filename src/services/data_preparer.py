@@ -2823,7 +2823,7 @@ def prepare_proposal_20_data(
 ):
     """
     제안 20: 조직별 휴가 사용 패턴 분석 (Team별 휴가 유형 진단)
-    글로벌 필터를 적용하여 분석 대상을 선정한 뒤, 휴가 사용 패턴 분석 데이터를 생성합니다.
+    글로벌 필터를 적용하여, '연차휴가'에 대한 모든 상세 데이터를 생성합니다.
     """
     # 1. 필요한 모든 기본 데이터 로드
     base_data = load_all_base_data()
@@ -2854,7 +2854,7 @@ def prepare_proposal_20_data(
     last_contract = contract_info_df.sort_values('CONT_START_DATE').groupby('EMP_ID').last().reset_index()
     last_region = region_info_df.sort_values('REG_APP_START_DATE').groupby('EMP_ID').last().reset_index()
     last_salary = salary_contract_info_df.sort_values('SAL_START_DATE').groupby('EMP_ID').last().reset_index()
-    prior_career_summary = career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25
+    prior_career_summary = (career_info_df.groupby('EMP_ID')['CAREER_DURATION'].sum() / 365.25).reset_index(name='TOTAL_PRIOR_CAREER_YEARS')
 
     dept_level_map = department_df.set_index('DEP_ID')['DEP_LEVEL'].to_dict()
     parent_map_dept = department_df.set_index('DEP_ID')['UP_DEP_ID'].to_dict()
@@ -2868,23 +2868,20 @@ def prepare_proposal_20_data(
     first_pos = pd.merge(first_pos, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
     last_region = pd.merge(last_region, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
     last_region['REGION_CATEGORY'] = '해외 현장'; last_region.loc[last_region['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'; last_region.loc[last_region['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
-
+    
     emp_details = pd.merge(emp_details, first_dept[['EMP_ID', 'DIVISION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_job[['EMP_ID', 'JOB_L1_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, first_pos[['EMP_ID', 'POSITION_NAME']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_contract[['EMP_ID', 'CONT_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_region[['EMP_ID', 'REGION_CATEGORY']], on='EMP_ID', how='left')
     emp_details = pd.merge(emp_details, last_salary[['EMP_ID', 'SAL_AMOUNT', 'PAY_CATEGORY']], on='EMP_ID', how='left')
-    emp_details = pd.merge(emp_details, prior_career_summary.rename('TOTAL_PRIOR_CAREER_YEARS'), on='EMP_ID', how='left')
+    emp_details = pd.merge(emp_details, prior_career_summary, on='EMP_ID', how='left')
     emp_details['TOTAL_PRIOR_CAREER_YEARS'] = emp_details['TOTAL_PRIOR_CAREER_YEARS'].fillna(0)
     emp_details['TOTAL_CAREER_YEARS'] = emp_details['TENURE_YEARS'] + emp_details['TOTAL_PRIOR_CAREER_YEARS']
     
-    age_bins = [-1, 19, 29, 39, 49, 150]; age_labels = ['20세 미만', '20-29세', '30-39세', '40-49세', '50세 이상']
     emp_details['AGE_BIN'] = pd.cut(emp_details['AGE'], bins=age_bins, labels=age_labels)
-    career_bins = [-1, 1, 3, 7, 15, 150]; career_labels = ['1년 미만', '1~3년', '3~7년', '7~15년', '15년 이상']
     emp_details['CAREER_BIN'] = pd.cut(emp_details['TOTAL_CAREER_YEARS'], bins=career_bins, labels=career_labels, right=False)
     emp_details['ANNUAL_SALARY'] = emp_details['SAL_AMOUNT']; emp_details.loc[emp_details['PAY_CATEGORY'] == '월급', 'ANNUAL_SALARY'] = emp_details['SAL_AMOUNT'] * 12
-    salary_bins = [-1, 39999999, 59999999, 79999999, 99999999, float('inf')]; salary_labels = ['4,000만원 미만', '4,000~5,999만원', '6,000~7,999만원', '8,000~9,999만원', '1억원 이상']
     emp_details['SALARY_BIN'] = pd.cut(emp_details['ANNUAL_SALARY'], bins=salary_bins, labels=salary_labels, right=False)
 
     # 3. 글로벌 필터 적용
@@ -2901,43 +2898,62 @@ def prepare_proposal_20_data(
     
     filtered_emp_ids = filtered_emps_df['EMP_ID'].unique()
     if len(filtered_emp_ids) == 0:
-        return {"analysis_df": pd.DataFrame()}
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
-    # 4. 필터링된 직원들의 휴가 사용 패턴 데이터 생성
+    # 4. 필터링된 직원들의 '연차휴가' 데이터에 모든 시점별 속성 정보 부여
     annual_leave_id = leave_type_df[leave_type_df['LEAVE_TYPE_NAME'] == '연차휴가']['LEAVE_TYPE_ID'].iloc[0]
     analysis_df = detailed_leave_info_df[
         (detailed_leave_info_df['LEAVE_TYPE_ID'] == annual_leave_id) &
         (detailed_leave_info_df['EMP_ID'].isin(filtered_emp_ids))
     ].copy()
-
-    if analysis_df.empty:
-        return {"analysis_df": pd.DataFrame()}
-        
     analysis_df['DATE'] = pd.to_datetime(analysis_df['DATE'])
-    analysis_df['DAY_OF_WEEK'] = analysis_df['DATE'].dt.weekday
+    
+    # --- [수정된 부분 1: YEAR 컬럼 추가 및 2020년 이후 필터링] ---
+    analysis_df['YEAR'] = analysis_df['DATE'].dt.year
+    analysis_df = analysis_df[analysis_df['YEAR'] >= 2020].copy()
+    # --- [수정된 부분 끝] ---
+    
+    if analysis_df.empty:
+        return {"analysis_df": pd.DataFrame(), "order_map": order_map}
 
-    # 4-1. 시점별 부서 정보 추가
+    # 정렬된 이력 테이블 준비
     dept_info_sorted = department_info_df.sort_values('DEP_APP_START_DATE')
-    analysis_df = pd.merge_asof(
-        analysis_df.sort_values('DATE'),
-        dept_info_sorted[['EMP_ID', 'DEP_APP_START_DATE', 'DEP_ID']],
-        left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward'
-    )
+    job_info_sorted = job_info_df.sort_values('JOB_APP_START_DATE')
+    pos_info_with_name = pd.merge(position_info_df, position_df[['POSITION_ID', 'POSITION_NAME']].drop_duplicates(), on='POSITION_ID')
+    pos_info_sorted = pos_info_with_name.sort_values('GRADE_START_DATE')
+
+    analysis_df = analysis_df.sort_values('DATE')
+    
+    # 시점별 부서, 직무, 직위 정보 병합
+    analysis_df = pd.merge_asof(analysis_df, dept_info_sorted, left_on='DATE', right_on='DEP_APP_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df, job_info_sorted, left_on='DATE', right_on='JOB_APP_START_DATE', by='EMP_ID', direction='backward')
+    analysis_df = pd.merge_asof(analysis_df, pos_info_sorted, left_on='DATE', right_on='GRADE_START_DATE', by='EMP_ID', direction='backward')
+
+    # 이름(Label) 정보 추가
     parent_info = analysis_df['DEP_ID'].apply(lambda x: find_parents(x, dept_level_map, parent_map_dept, dept_name_map))
     analysis_df = pd.concat([analysis_df, parent_info], axis=1)
-    analysis_df = pd.merge(analysis_df, department_df[['DEP_ID', 'DEP_NAME']], on='DEP_ID')
-    analysis_df = analysis_df.rename(columns={'DEP_NAME': 'TEAM_NAME'})
-    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'OFFICE_NAME', 'TEAM_NAME'])
+    analysis_df['JOB_L1_NAME'] = analysis_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level1_ancestor(x, job_df_indexed, parent_map_job)))
+    analysis_df['JOB_L2_NAME'] = analysis_df['JOB_ID'].apply(lambda x: job_name_map.get(get_level2_ancestor(x, job_df_indexed, parent_map_job)))
+    analysis_df = pd.merge(analysis_df, department_df[['DEP_ID', 'DEP_NAME']].rename(columns={'DEP_NAME': 'TEAM_NAME'}), on='DEP_ID', how='left')
+    
+    # 나머지 정적/계산된 필터 속성 정보 병합
+    attrs_to_merge = ['EMP_ID', 'GENDER', 'AGE_BIN', 'CAREER_BIN', 'SALARY_BIN', 'REGION_CATEGORY', 'CONT_CATEGORY']
+    emp_attrs = filtered_emps_df[attrs_to_merge].drop_duplicates(subset=['EMP_ID'])
+    analysis_df = pd.merge(analysis_df, emp_attrs, on='EMP_ID', how='left')
+    
+    # [수정] dropna에서 TEAM_NAME을 포함한 필수 컬럼만 남김
+    analysis_df = analysis_df.dropna(subset=['DIVISION_NAME', 'TEAM_NAME'])
 
-    # 4-2. '징검다리 휴가' 여부 판단
+    # 5. 휴가 패턴 컬럼 생성
+    analysis_df['DAY_OF_WEEK'] = analysis_df['DATE'].dt.weekday
     analysis_df['IS_BRIDGE'] = analysis_df['DAY_OF_WEEK'].isin([0, 4]) # 0: Monday, 4: Friday
 
-    # 4-3. '장기 휴가' 여부 판단 (연속 휴가 블록 식별)
     analysis_df = analysis_df.sort_values(['EMP_ID', 'DATE'])
     analysis_df['DATE_DIFF'] = analysis_df.groupby('EMP_ID')['DATE'].diff().dt.days
     analysis_df['BLOCK_ID'] = (analysis_df['DATE_DIFF'] != 1).cumsum()
     block_lengths = analysis_df.groupby(['EMP_ID', 'BLOCK_ID'])['DATE'].transform('count')
     analysis_df['IS_LONG_LEAVE'] = block_lengths >= 3
 
-    return {"analysis_df": analysis_df}
+    return {"analysis_df": analysis_df, "order_map": order_map}
+
 # 각 함수의 결과는 @st.cache_data로 캐싱되어야 합니다.
