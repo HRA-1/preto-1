@@ -4,11 +4,14 @@ import plotly.graph_objects as go
 import plotly.express as px
 from pandas.api.types import is_categorical_dtype
 
-def create_figure_and_df(analysis_df, dimension_ui_name, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 20: 조직별 휴가 사용 패턴 분석 (Team별 휴가 유형 진단)
     '연도별' 필터, '동적 축 범위', 'MultiIndex 정렬'을 모두 적용합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 유효성 검사
     if analysis_df.empty or 'IS_BRIDGE' not in analysis_df.columns:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

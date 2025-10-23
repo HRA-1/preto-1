@@ -1,11 +1,16 @@
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 
-def create_figure_and_df(analysis_df, drilldown_selection, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 15: 부서 변경 전후 초과근무 패턴 분석
     드릴다운 선택에 따라 Division 또는 Office별 그룹 막대그래프를 생성합니다.
+    (dimension_ui_name, dimension_config는 app.py와의 호환성을 위해 받지만, 이 함수 내에서는 사용되지 않습니다.)
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 유효성 검사
     if analysis_df.empty:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

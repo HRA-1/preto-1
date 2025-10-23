@@ -4,11 +4,14 @@ import plotly.graph_objects as go
 import plotly.express as px
 from pandas.api.types import is_categorical_dtype
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 16: 주말 근무 패턴 분석
     모든 차원을 지원하며, NaN 텍스트와 groupby 오류를 해결합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 및 설정 유효성 검사
     if analysis_df.empty or 'WEEKEND_WORK_DAYS' not in analysis_df.columns:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")
@@ -25,7 +28,7 @@ def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, di
     if config.get('type') == 'hierarchical' and drilldown_selection != '전체':
         top_level_col = config.get('top')
         xaxis_col = config.get('sub')
-        plot_df = analysis_df[analysis_df[top_level_col] == drilldown_selection]
+        plot_df = analysis_df[analysis_df[top_level_col] == drilldown_selection].copy()
         if is_categorical_dtype(plot_df[xaxis_col]):
             plot_df[xaxis_col] = plot_df[xaxis_col].cat.remove_unused_categories()
         xaxis_order = [o for o in order_map.get(xaxis_col, []) if o in plot_df[xaxis_col].unique()]

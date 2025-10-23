@@ -1,11 +1,20 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-def create_figure(cohort_pivot, title):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 6: 입사 연도별 잔존율 코호트 분석 (히트맵)
+    data_bundle과 사용자 선택(dimension_ui_name, drilldown_selection)을 기반으로
     '이미 선택된' 단일 코호트 피벗 테이블을 받아 히트맵 그래프를 생성합니다.
     """
+    # --- [수정된 부분 시작] ---
+    # data_bundle에서 app.py가 선택한 데이터를 추출
+    cohort_data_bundle = data_bundle.get("cohort_data_bundle", {})
+    cohort_map = cohort_data_bundle.get(dimension_ui_name, {})
+    cohort_pivot = cohort_map.get(drilldown_selection, pd.DataFrame())
+    title = f"[{dimension_ui_name} - {drilldown_selection}] 입사 연도별 잔존율"
+    # --- [수정된 부분 끝] ---
+
     if cohort_pivot.empty:
         return go.Figure().update_layout(title_text="표시할 데이터가 없습니다.")
 

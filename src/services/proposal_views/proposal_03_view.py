@@ -2,11 +2,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 3: 조직 세대교체 현황 그래프 및 피벗 테이블을 생성합니다.
     선택된 차원에 따라 연령 분포를 바이올린 플롯으로 시각화합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터가 없는 경우 즉시 빈 결과 반환
     if analysis_df.empty:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

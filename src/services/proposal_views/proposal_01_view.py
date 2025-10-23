@@ -2,11 +2,14 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 1: 성장 속도 비교 그래프 및 피벗 테이블을 생성합니다.
     순서 정보(order_map)를 활용하여 X축을 동적으로 정렬합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터가 없는 경우 즉시 빈 결과 반환
     if analysis_df.empty or analysis_df[['TIME_TO_MANAGER', 'TIME_TO_DIRECTOR']].isnull().all().all():
         fig = go.Figure().update_layout(title_text="분석할 승진 데이터가 없습니다.")

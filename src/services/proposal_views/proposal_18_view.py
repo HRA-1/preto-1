@@ -4,11 +4,15 @@ import plotly.graph_objects as go
 import plotly.express as px
 from pandas.api.types import is_categorical_dtype
 
-def create_figure_and_df(analysis_df, dimension_ui_name, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 18: 직원 번아웃 신호 감지 (연차-병가 사용 패턴 분석)
     2020년 이후 데이터만 필터링하며, 요약 테이블은 Transpose하여 반환합니다.
+    (drilldown_selection은 app.py와의 호환성을 위해 받지만, 이 함수 내에서는 사용되지 않습니다.)
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # --- [수정된 부분 1: 2020년 이후 데이터만 필터링] ---
     analysis_df = analysis_df[analysis_df['YEAR'] >= 2020].copy()
     

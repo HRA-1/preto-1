@@ -1,10 +1,11 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-def create_figure(data_bundle):
+def create_figure(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 2: 차세대 리더 승진 경로 분석 (생키 다이어그램)
     사전 가공된 승진 경로 데이터(data_bundle)를 받아 인터랙티브 생키 다이어그램을 생성합니다.
+    (dimension_ui_name 등은 app.py와의 호환성을 위해 받지만, 이 함수 내에서는 사용되지 않습니다.)
     """
     # 1. 데이터가 없는 경우 즉시 빈 그래프 반환
     if not data_bundle or "sankey_div_data" not in data_bundle:

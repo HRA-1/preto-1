@@ -3,12 +3,15 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 4: 조직 경험 자산 현황 그래프 및 피벗 테이블을 생성합니다.
     app.py에서 전달된 dimension_config와 필터 값에 따라
     다양한 차원의 근속년수 분포를 동적으로 시각화합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 및 설정 유효성 검사
     if analysis_df.empty or analysis_df['TENURE_YEARS'].isnull().all():
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

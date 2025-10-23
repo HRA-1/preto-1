@@ -1,11 +1,14 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 11: 근무 유연성 분석 (조직별 초과근무 분포)
     dimension_config에 따라 동적으로 X축을 변경하여 바이올린 플롯을 생성합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 및 설정 유효성 검사
     if analysis_df.empty or 'OVERTIME_MINUTES' not in analysis_df.columns:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

@@ -2,10 +2,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-def create_figure_and_df(data_bundle, dimension_ui_name, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 9: 조직 활력도 진단 (연간 직무 이동률)
     드릴다운 없이, 선택된 단일 차원에 대한 그룹별 추이를 시각화합니다.
+    (drilldown_selection은 app.py와의 호환성을 위해 받지만, 이 함수 내에서는 사용되지 않습니다.)
     """
     # 1. 데이터 및 설정 유효성 검사
     analysis_df = data_bundle.get("analysis_df")

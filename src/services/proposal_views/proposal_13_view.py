@@ -2,11 +2,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-def create_figure_and_df(analysis_df, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 13: 조직 워라밸 변화 추이 (월 평균 1인당 초과근무 시간)
     dimension_config에 따라 동적으로 그룹핑하여 꺾은선 그래프를 생성합니다.
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 유효성 검사
     if analysis_df.empty or 'OVERTIME_MINUTES' not in analysis_df.columns:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")

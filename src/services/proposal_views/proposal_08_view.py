@@ -3,11 +3,15 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 
-def create_figure_and_df(analysis_df, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 8: 직무별 인력 유지 현황 분석 (재직자 vs 퇴사자)
     Y축에 '전체' 항목을 추가하여 시각화합니다.
+    (dimension_ui_name 등은 app.py와의 호환성을 위해 받지만, 이 함수 내에서는 사용되지 않습니다.)
     """
+    # data_bundle에서 analysis_df 추출
+    analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
+    
     # 1. 데이터 유효성 검사
     if analysis_df.empty or 'TENURE_YEARS' not in analysis_df.columns:
         fig = go.Figure().update_layout(title_text="분석할 데이터가 없습니다.")
