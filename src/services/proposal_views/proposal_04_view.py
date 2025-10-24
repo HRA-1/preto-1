@@ -47,7 +47,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         # 최상위 뷰 (예: '부서별', '직무별', '성별' 등)
         grouping_col = config.get('top', config.get('col'))
         category_order = order_map.get(grouping_col, [])
-        title_text = f"{dimension_ui_name}별 근속년수 분포"
+        title_text = f"{dimension_ui_name} 근속년수 분포"
 
     # 현재 뷰에 데이터가 없으면 빈 그래프 반환
     if plot_df.empty:
@@ -79,8 +79,8 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     )
     fig.update_xaxes(dtick=1)
 
-    # --- 4. 요약 테이블(aggregate_df) 생성 (동적으로 수정된 부분) ---
-    table_df = analysis_df # 이미 글로벌 필터가 적용된 데이터 사용
+   # 4. 요약 테이블(aggregate_df) 생성
+    table_df = plot_df.copy() # 원본 analysis_df 대신, 필터링된 plot_df 사용
     
     tenure_bins_agg = [-np.inf, 3, 7, np.inf]
     tenure_labels_agg = ['3년 이하', '3년초과~7년이하', '7년 초과']
@@ -89,7 +89,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     aggregate_df = pd.pivot_table(
         table_df,
         index='TENURE_GROUP',
-        columns=grouping_col, # ----- [수정] 컬럼을 동적 grouping_col로 변경 -----
+        columns=grouping_col, 
         values='EMP_ID',
         aggfunc='count',
         margins=True,
@@ -98,10 +98,8 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     ).fillna(0).astype(int)
     
     if '합계' in aggregate_df.columns:
-        # category_order는 현재 뷰에 맞는 순서 정보를 담고 있음
         cols_ordered = ['합계'] + [col for col in category_order if col in aggregate_df.columns and col != '합계']
-        # category_order에 없는 나머지 컬럼들도 포함 (순서 정보가 없는 경우 대비)
         remaining_cols = [col for col in aggregate_df.columns if col not in cols_ordered]
         aggregate_df = aggregate_df[cols_ordered + remaining_cols]
-        
+    
     return fig, aggregate_df

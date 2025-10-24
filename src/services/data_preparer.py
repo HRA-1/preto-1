@@ -74,6 +74,7 @@ def _get_current_employee_snapshot():
     job_df = base_data["job_df"]
     department_df = base_data["department_df"]
     contract_info_df = base_data["contract_info_df"]
+    region_df = base_data["region_df"]
     region_info_df = base_data["region_info_df"]
 
     # 헬퍼 데이터 준비
@@ -129,6 +130,12 @@ def _get_current_employee_snapshot():
     # 7-2. 각 그룹(Bin) 컬럼 생성
     # 연령대
     snapshot_df['AGE_BIN'] = pd.cut(snapshot_df['AGE'], bins=age_bins, labels=age_labels)
+
+    # REGION_CATEGORY 추가
+    snapshot_df = pd.merge(snapshot_df, region_df[['REG_ID', 'REG_NAME', 'DOMESTIC_YN']], on='REG_ID', how='left')
+    snapshot_df['REGION_CATEGORY'] = '해외 현장'
+    snapshot_df.loc[snapshot_df['DOMESTIC_YN'] == 'Y', 'REGION_CATEGORY'] = '국내 현장'
+    snapshot_df.loc[snapshot_df['REG_NAME'] == '서울특별시', 'REGION_CATEGORY'] = '서울 본사'
 
     # 근속년수
     snapshot_df['TENURE_GROUP'] = pd.cut(snapshot_df['TENURE_YEARS'], bins=tenure_bins_agg, labels=tenure_labels_agg)
