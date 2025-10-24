@@ -5,7 +5,7 @@ import plotly.express as px
 def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 5: 조직 건강도 위험 신호 탐지 (연간 퇴사율)
-    미리 계산된 퇴사율 데이터를 받아, 선택된 차원에 맞게 시각화합니다.
+    드릴다운 로직과 '전체' 평균 로직을 수정한 최종본입니다.
     """
     # 1. 데이터 및 설정 유효성 검사
     turnover_data = data_bundle.get("turnover_data")
@@ -19,29 +19,50 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         fig = go.Figure().update_layout(title_text=f"'{dimension_ui_name}'에 대한 설정이 없습니다.")
         return fig, pd.DataFrame()
 
-    # --- 2. 시각화할 데이터 선택 ---
+    # --- 2. 시각화할 데이터 선택 (드릴다운 로직 수정) ---
+    
     if config['type'] == 'hierarchical' and drilldown_selection != '전체':
-        # 드릴다운 시에는 sub-dimension 데이터만 필터링
-        grouping_col_dim = config['sub']
-        category_order = order_map.get(grouping_col_dim, [])
-        plot_data = turnover_data[turnover_data['DIMENSION'] == grouping_col_dim]
+        # --- 드릴다운 뷰 ---
+        top_level_col = config.get('top')
+        grouping_col_name = config.get('sub')
+        
+        # 1. plot_data: 하위 그룹 데이터 필터링 (예: 'Office' 데이터 중 'Planning Division' 소속만)
+        plot_data = turnover_data[
+            (turnover_data['DIMENSION'] == grouping_col_name) & 
+            (turnover_data['PARENT_DIM'] == drilldown_selection)
+        ]
+        category_order = [o for o in order_map.get(grouping_col_name, []) if o in plot_data['CATEGORY'].unique()]
+        
+        # 2. total_turnover: 상위 그룹(예: 'Planning Division')의 평균을 '전체'로 사용
+        total_turnover = turnover_data[
+            (turnover_data['DIMENSION'] == top_level_col) & 
+            (turnover_data['CATEGORY'] == drilldown_selection)
+        ]
+        total_label = drilldown_selection # '전체' 대신 상위 그룹 이름 사용
         title_text = f"'{drilldown_selection}' 내 하위 그룹별 연간 퇴사율"
+        legend_title = grouping_col_name
     else:
-        # 기본 뷰에서는 top-level dimension 데이터 필터링
-        grouping_col_dim = config.get('top', config.get('col'))
-        category_order = order_map.get(grouping_col_dim, [])
-        plot_data = turnover_data[turnover_data['DIMENSION'] == grouping_col_dim]
+        # --- 최상위 뷰 ---
+        grouping_col_name = config.get('top', config.get('col'))
+        
+        # 1. plot_data: 최상위 그룹 데이터 (예: 'Division' 데이터)
+        plot_data = turnover_data[turnover_data['DIMENSION'] == grouping_col_name]
+        category_order = order_map.get(grouping_col_name, [])
+        
+        # 2. total_turnover: 전사 '전체' 평균 사용
+        total_turnover = turnover_data[turnover_data['DIMENSION'] == '전체']
+        total_label = '전체'
         title_text = f"{dimension_ui_name} 연간 퇴사율"
+        legend_title = grouping_col_name
 
     # --- 3. Plotly 그래프 생성 ---
     fig = go.Figure()
     colors = px.colors.qualitative.Plotly
     
-    # '전체' 추세선 추가
-    total_turnover = turnover_data[turnover_data['DIMENSION'] == '전체']
+    # '전체' (또는 상위 그룹) 추세선 추가
     if not total_turnover.empty:
         fig.add_trace(go.Scatter(
-            x=total_turnover['YEAR'], y=total_turnover['TURNOVER_RATE'], name='전체',
+            x=total_turnover['YEAR'], y=total_turnover['TURNOVER_RATE'], name=total_label,
             mode='lines+markers+text', text=total_turnover['TURNOVER_RATE'].round(1).astype(str) + '%',
             textposition="top center", line=dict(color='black', dash='dash', width=4)
         ))
@@ -51,14 +72,20 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         df_filtered = plot_data[plot_data['CATEGORY'] == category_name]
         if not df_filtered.empty:
             fig.add_trace(go.Scatter(
-                x=df_filtered['YEAR'], y=df_filtered['TURNOVER_RATE'], name=category_name,
+                x=df_filtered['YEAR'], y=df_filtered['TURNOVER_RATE'], name=str(category_name),
                 mode='lines+markers+text', text=df_filtered['TURNOVER_RATE'].round(1).astype(str) + '%',
                 textposition="top center", marker_color=colors[i % len(colors)]
             ))
 
+    # 4. 레이아웃 업데이트
+    all_rates = pd.concat([plot_data['TURNOVER_RATE'], total_turnover['TURNOVER_RATE']])
+    y_max = all_rates.max() if not all_rates.empty else 0
+    fixed_y_range = [0, y_max * 1.2 if y_max > 0 else 10]
+
     fig.update_layout(
+        template='plotly',
         title_text=title_text, xaxis_title='연도', yaxis_title='연간 퇴사율 (%)',
-        font_size=14, height=700, legend_title_text=dimension_ui_name,
+        font_size=14, height=700, legend_title_text=legend_title,
         yaxis_ticksuffix=" %"
     )
     fig.update_xaxes(dtick=1)
@@ -69,10 +96,10 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     )
     
     if not total_turnover.empty:
-        pivot_df['전체'] = total_turnover.set_index('YEAR')['TURNOVER_RATE']
+        pivot_df[total_label] = total_turnover.set_index('YEAR')['TURNOVER_RATE']
     
-    final_cols = ['전체'] + [col for col in category_order if col in pivot_df.columns]
-    remaining_cols = [col for col in pivot_df.columns if col not in final_cols and col != '전체']
+    final_cols = [total_label] + [col for col in category_order if col in pivot_df.columns]
+    remaining_cols = [col for col in pivot_df.columns if col not in final_cols and col != total_label]
     aggregate_df = pivot_df[final_cols + remaining_cols].round(2).fillna('-')
     
     return fig, aggregate_df

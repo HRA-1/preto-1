@@ -35,16 +35,25 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     if overall_df is not None and not overall_df.empty:
         fig.add_trace(go.Scatter(
             x=overall_df['YEAR'], y=overall_df['MOBILITY_RATE'], name='전체 평균',
-            mode='lines+markers', line=dict(color='black', dash='dash')
+            # --- [수정 2: 라벨 추가] ---
+            mode='lines+markers+text', 
+            text=overall_df['MOBILITY_RATE'].round(1).astype(str) + '%',
+            textposition="top center", 
+            line=dict(color='black', dash='dash', width=4)
         ))
 
     # 그룹별 추세선 추가
     for i, category_name in enumerate(category_order):
+        # --- [수정 1: 버그 수정 'CATEGORY' -> 'GROUP_NAME'] ---
         df_filtered = plot_data[plot_data['GROUP_NAME'] == category_name]
         if not df_filtered.empty:
             fig.add_trace(go.Scatter(
                 x=df_filtered['YEAR'], y=df_filtered['MOBILITY_RATE'], name=str(category_name),
-                mode='lines+markers', marker_color=colors[i % len(colors)]
+                # --- [수정 2: 라벨 추가] ---
+                mode='lines+markers+text', 
+                text=df_filtered['MOBILITY_RATE'].round(1).astype(str) + '%',
+                textposition="top center", 
+                marker_color=colors[i % len(colors)]
             ))
 
     # 4. 레이아웃 업데이트
@@ -65,6 +74,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     )
     fig.update_xaxes(dtick=1)
     
+    # --- [수정 1: 버그 수정 'CATEGORY' -> 'GROUP_NAME'] ---
     # 5. 요약 테이블(aggregate_df) 생성
     aggregate_df = plot_data.pivot_table(
         index='YEAR', columns='GROUP_NAME', values='MOBILITY_RATE', observed=False
