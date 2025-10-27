@@ -6,159 +6,153 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from services.helpers.dict import name_dictionary
+from services import data_preparer
 
-PROPOSALS_DIR = "src/services/proposals"
+# Configure page layout - must be first st command
+st.set_page_config(
+    page_title="HR Analytics Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "HR Analytics Dashboard"
+    }
+)
+
+PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
 
 
-def get_proposal_categories():
+def get_proposal_groups():
     """
-    Scans the proposals directory and returns a list of unique proposal categories.
-    Categories are the base proposal names (e.g., 'proposal_01', 'basic_proposal').
+    Returns proposal groups for the first filter.
     """
-    if not os.path.exists(PROPOSALS_DIR):
-        return []
-
-    categories = set()
-    for filename in os.listdir(PROPOSALS_DIR):
-        if filename.endswith((".py", ".md")) and not filename.startswith("__"):
-            name = os.path.splitext(filename)[0]
-
-            # Extract base category from filename patterns
-            if name.startswith("basic_proposal"):
-                if "_" in name[len("basic_proposal") :]:
-                    # Has subtype (e.g., basic_proposal_부서별)
-                    categories.add("basic_proposal")
-                else:
-                    # Base file (e.g., basic_proposal.py) - shouldn't exist but handle it
-                    categories.add(name)
-            elif name.startswith("proposal_"):
-                # Extract proposal number (e.g., proposal_01, proposal_01_부서별)
-                parts = name.split("_")
-                if len(parts) >= 2:
-                    # proposal_XX or proposal_XX_subtype
-                    category = "_".join(parts[:2])  # proposal_01
-                    categories.add(category)
-            else:
-                # Other files without standard pattern
-                if "_" in name:
-                    # Assume format: category_subtype
-                    category = name.rsplit("_", 1)[0]
-                    categories.add(category)
-                else:
-                    # Base file
-                    categories.add(name)
-
-    return sorted(list(categories))
+    return {
+        "필터(그룹 선택)": [],  # Placeholder for initial state
+        "인력 현황": ["basic_proposal", "proposal_01", "proposal_02", "proposal_03", "proposal_04"],
+        "퇴사/유지": ["proposal_05", "proposal_06", "proposal_07", "proposal_08", "proposal_09"],
+        "보상": ["proposal_10"],
+        "근태": ["proposal_11", "proposal_12", "proposal_13", "proposal_14", "proposal_15", "proposal_16", "proposal_17"],
+        "휴가": ["proposal_18", "proposal_19", "proposal_20"]
+    }
 
 
-def get_proposal_subtypes(category):
+def get_dimension_config():
     """
-    Returns available subtypes for a given proposal category.
-    Subtypes include markdown files (개요) and python files (부서별, 직무별, etc.).
+    Returns dimension configuration for the third filter.
     """
-    if not os.path.exists(PROPOSALS_DIR):
-        return []
+    return {
+        "필터(구분 선택)": {"type": "single", "col": None},  # Placeholder
+        "전체": {"type": "single", "col": None},
+        "부서별": {"type": "hierarchical", "top": "DIVISION_NAME", "sub": "OFFICE_NAME"},
+        "직무별": {"type": "hierarchical", "top": "JOB_L1_NAME", "sub": "JOB_L2_NAME"},
+        "직위별": {"type": "single", "col": "POSITION_NAME"},
+        "성별": {"type": "single", "col": "GENDER"},
+        "연령대별": {"type": "single", "col": "AGE_BIN"},
+        "경력구간별": {"type": "single", "col": "CAREER_BIN"},
+        "연봉구간별": {"type": "single", "col": "SALARY_BIN"},
+        "근무지역별": {"type": "single", "col": "REGION_CATEGORY"},
+        "계약형태별": {"type": "single", "col": "CONT_CATEGORY"}
+    }
 
-    subtypes = set()
+def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
+    """
+    Returns drilldown options based on the selected dimension.
+    """
+    # If dimension is the placeholder, return placeholder for drilldown too
+    if dimension_ui_name == "필터(구분 선택)":
+        return ["필터(전체)"]
 
-    # Dynamically scan for all subtypes for this category
-    for filename in os.listdir(PROPOSALS_DIR):
-        if filename.startswith(f"{category}_") and not filename.startswith("__"):
-            name = os.path.splitext(filename)[0]
+    config = dimension_config.get(dimension_ui_name, {})
 
-            # Extract subtype (everything after category_)
-            subtype = name[len(f"{category}_") :]
-            if subtype:  # Make sure subtype is not empty
-                subtypes.add(subtype)
+    if config.get('type') == 'hierarchical':
+        # For hierarchical dimensions, get unique top-level values
+        top_col = config.get('top')
+        if top_col and data_bundle:
+            # Try to get from any available data source in the bundle
+            for key, value in data_bundle.items():
+                if isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, pd.DataFrame) and top_col in sub_value.columns:
+                            unique_values = sub_value[top_col].dropna().unique()
+                            return ['필터(전체)', '전체'] + sorted(unique_values.tolist())
+                elif isinstance(value, pd.DataFrame) and top_col in value.columns:
+                    unique_values = value[top_col].dropna().unique()
+                    return ['필터(전체)', '전체'] + sorted(unique_values.tolist())
 
-    # If no subtypes found, check for base file (should add "기본")
-    if not subtypes and os.path.exists(os.path.join(PROPOSALS_DIR, f"{category}.py")):
-        subtypes.add("기본")
-
-    # Sort subtypes in a logical order
-    priority_order = ["개요", "기본", "부서별", "직무별", "직위직급별"]
-    sorted_subtypes = []
-
-    # Add priority items first
-    for item in priority_order:
-        if item in subtypes:
-            sorted_subtypes.append(item)
-            subtypes.remove(item)
-
-    # Add remaining subtypes in alphabetical order
-    sorted_subtypes.extend(sorted(list(subtypes)))
-
-    return sorted_subtypes
+    return ['필터(전체)', '전체']
 
 
 @st.cache_data
-def load_markdown_content(category: str, subtype: str):
+def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "전체"):
     """
-    Loads markdown content for a proposal category and subtype.
-    Returns the content as a string or None if not found.
+    Gets the appropriate data bundle for the selected proposal.
+    Only loads data when a valid proposal is selected.
     """
-    # For 개요 subtype, look for {category}_개요.md
-    if subtype == "개요":
-        md_path = os.path.join(PROPOSALS_DIR, f"{category}_개요.md")
-        if os.path.exists(md_path):
-            try:
-                with open(md_path, "r", encoding="utf-8") as f:
-                    return f.read()
-            except Exception as e:
-                st.error(f"Error reading markdown file {category}_개요.md: {e}")
+    # Don't load data for placeholder selections
+    if not proposal_name or proposal_name.startswith("필터"):
+        return {"analysis_df": pd.DataFrame(), "order_map": {}}
 
-    # For other subtypes, try legacy patterns as fallback
-    possible_names = [f"{category}_instruction.md", f"{category}.md"]
-    for md_name in possible_names:
-        md_path = os.path.join(PROPOSALS_DIR, md_name)
-        if os.path.exists(md_path):
-            try:
-                with open(md_path, "r", encoding="utf-8") as f:
-                    return f.read()
-            except Exception as e:
-                st.error(f"Error reading markdown file {md_name}: {e}")
+    # Map proposal names to data preparation functions
+    prepare_function_map = {
+        "basic_proposal": data_preparer.prepare_basic_proposal_data,
+        "proposal_01": data_preparer.prepare_proposal_01_data,
+        "proposal_02": data_preparer.prepare_proposal_02_data,
+        "proposal_03": data_preparer.prepare_proposal_03_data,
+        "proposal_04": data_preparer.prepare_proposal_04_data,
+        "proposal_05": data_preparer.prepare_proposal_05_data,
+        "proposal_06": data_preparer.prepare_proposal_06_data,
+        "proposal_07": data_preparer.prepare_proposal_07_data,
+        "proposal_08": data_preparer.prepare_proposal_08_data,
+        "proposal_09": data_preparer.prepare_proposal_09_data,
+        "proposal_10": data_preparer.prepare_proposal_10_data,
+        "proposal_11": data_preparer.prepare_proposal_11_data,
+        "proposal_12": data_preparer.prepare_proposal_12_data,
+        "proposal_13": data_preparer.prepare_proposal_13_data,
+        "proposal_14": data_preparer.prepare_proposal_14_data,
+        "proposal_15": data_preparer.prepare_proposal_15_data,
+        "proposal_16": data_preparer.prepare_proposal_16_data,
+        "proposal_17": data_preparer.prepare_proposal_17_data,
+        "proposal_18": data_preparer.prepare_proposal_18_data,
+        "proposal_19": data_preparer.prepare_proposal_19_data,
+        "proposal_20": data_preparer.prepare_proposal_20_data,
+    }
 
-    return None
-
-
-@st.cache_data
-def load_proposal_data(category: str, subtype: str):
-    """
-    Dynamically imports the specified proposal module and returns its figure and aggregate_df.
-    Returns a tuple (figure, aggregate_df). aggregate_df is None if not available.
-    The result is cached to prevent reloading.
-    """
-    # Determine the module file based on category and subtype
-    if subtype == "개요":
-        # For 개요, no figure is expected (only markdown)
-        return None, None
+    prepare_func = prepare_function_map.get(proposal_name)
+    if prepare_func:
+        # Call the preparation function with default global filters
+        with st.spinner(f"'{proposal_name}' 데이터를 불러오는 중..."):
+            return prepare_func(
+                filter_division='전체',
+                filter_job_l1='전체',
+                filter_position='전체',
+                filter_gender='전체',
+                filter_age_bin='전체',
+                filter_career_bin='전체',
+                filter_salary_bin='전체',
+                filter_region='전체',
+                filter_contract='전체'
+            )
     else:
-        # Try specific subtype file first
-        if subtype == "기본":
-            # For 기본, try base file first, then {category}_기본.py
-            module_filename = f"{category}.py"
-            module_path = os.path.join(PROPOSALS_DIR, module_filename)
+        return {"analysis_df": pd.DataFrame(), "order_map": {}}
 
-            if not os.path.exists(module_path):
-                module_filename = f"{category}_기본.py"
-                module_path = os.path.join(PROPOSALS_DIR, module_filename)
-        else:
-            # For all other subtypes, try {category}_{subtype}.py
-            module_filename = f"{category}_{subtype}.py"
-            module_path = os.path.join(PROPOSALS_DIR, module_filename)
 
-            # If specific subtype doesn't exist, try base file as fallback
-            if not os.path.exists(module_path):
-                module_filename = f"{category}.py"
-                module_path = os.path.join(PROPOSALS_DIR, module_filename)
+@st.cache_data
+def load_proposal_view(proposal_name: str, dimension_ui_name: str, drilldown_selection: str, dimension_config: dict, data_bundle: dict, order_map: dict):
+    """
+    Dynamically imports and executes the proposal view module.
+    Returns a tuple (figure, aggregate_df).
+    """
+    module_filename = f"{proposal_name}_view.py"
+    module_path = os.path.join(PROPOSAL_VIEWS_DIR, module_filename)
 
     if not os.path.exists(module_path):
-        st.warning(f"No module file found for {category}_{subtype}")
+        st.warning(f"No view module found: {module_filename}")
         return None, None
 
     try:
         # Create a unique module name to avoid conflicts
-        module_name = f"{category}_{subtype}".replace(".", "_")
+        module_name = f"{proposal_name}_view_{dimension_ui_name}_{drilldown_selection}".replace(".", "_").replace(" ", "_")
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         if spec is None or spec.loader is None:
             st.error(f"Could not create module spec for {module_filename}.")
@@ -167,113 +161,214 @@ def load_proposal_data(category: str, subtype: str):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        # Try to find create_figure_and_df function first (returns both figure and aggregate_df)
+        # Call create_figure_and_df with required parameters
         if hasattr(module, "create_figure_and_df"):
-            result = module.create_figure_and_df()
-            if isinstance(result, tuple) and len(result) == 2:
-                fig, aggregate_df = result
-                if isinstance(fig, (plt.Figure, go.Figure)):
-                    return fig, aggregate_df
-            else:
-                st.warning(
-                    f"create_figure_and_df in {module_filename} should return a tuple (figure, aggregate_df)"
-                )
-                return None, None
-
-        # If create_figure_and_df not found, try create_figure function
-        elif hasattr(module, "create_figure"):
-            fig = module.create_figure()
-            if isinstance(fig, (plt.Figure, go.Figure)):
-                return fig, None
-            else:
-                st.warning(f"create_figure in {module_filename} should return a figure")
-                return None, None
-
-        # Fallback: Find the first attribute that is a matplotlib or plotly figure
-        else:
-            for attr_name in dir(module):
-                if not attr_name.startswith("_"):
-                    attr = getattr(module, attr_name)
-                    if isinstance(attr, (plt.Figure, go.Figure)):
-                        return attr, None
-
-            st.warning(
-                f"No figure or create_figure/create_figure_and_df function found in module: {module_filename}"
+            result = module.create_figure_and_df(
+                data_bundle=data_bundle,
+                dimension_ui_name=dimension_ui_name,
+                drilldown_selection=drilldown_selection,
+                dimension_config=dimension_config,
+                order_map=order_map
             )
+            if isinstance(result, tuple) and len(result) == 2:
+                return result
+            else:
+                st.warning(f"create_figure_and_df in {module_filename} should return a tuple (figure, aggregate_df)")
+                return None, None
+        else:
+            st.warning(f"No create_figure_and_df function found in {module_filename}")
             return None, None
 
     except Exception as e:
-        st.error(f"Error loading data from {module_filename}: {e}")
+        st.error(f"Error loading view from {module_filename}: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return None, None
 
 
 def main():
     """
-    Main function to run the Streamlit app.
+    Main function to run the Streamlit app with 4-filter structure.
     """
     with streamlit_analytics.track():
-        st.sidebar.title("HR Analytics Graph Collection")
+        # SIDEBAR - LEFT FILTERS
+        st.sidebar.title("HR Analytics\nGraph Collection")
         st.sidebar.markdown(
             """
             더 이상 '감'과 '경험'에만 의존하는 HR의 시대는 지났습니다.\n
             조직의 숨겨진 리스크와 기회를 객관적 지표로 증명하고 선제적으로 인재관리를 시작하세요.
             """
         )
+        st.sidebar.markdown("---")  # Separator line
 
-        # Get available proposal categories
-        available_categories = get_proposal_categories()
+        # Get configuration
+        proposal_groups = get_proposal_groups()
+        dimension_config = get_dimension_config()
 
-        if not available_categories:
-            st.error("No proposals found in the 'PROPOSALS_DIR' directory.")
-            return
-
-        # First selectbox: Choose proposal category
-        selected_category = st.sidebar.selectbox(
-            "그래프 살펴보기", 
-            available_categories,
-            format_func=lambda x: name_dictionary.get(x, x)
+        # LEFT FILTER 1: 그룹 살펴보기 (Group selection)
+        selected_group = st.sidebar.selectbox(
+            "그룹 살펴보기",
+            options=list(proposal_groups.keys()),
+            index=0
         )
 
-        if selected_category:
-            # Get available subtypes for the selected category
-            available_subtypes = get_proposal_subtypes(selected_category)
+        # LEFT FILTER 2: 제안 살펴보기 (Proposal selection within the group)
+        if selected_group == "필터(그룹 선택)":
+            # Show placeholder for proposal selection
+            selected_proposal = st.sidebar.selectbox(
+                "제안 살펴보기",
+                options=["필터(개요)"],
+                index=0
+            )
+        elif selected_group and selected_group != "필터(그룹 선택)":
+            proposals_in_group = proposal_groups[selected_group]
+            if proposals_in_group:
+                proposal_options = ["필터(제안 선택)"] + proposals_in_group
+                selected_proposal = st.sidebar.selectbox(
+                    "제안 살펴보기",
+                    options=proposal_options,
+                    format_func=lambda x: x if x.startswith("필터") else name_dictionary.get(x, x),
+                    index=0
+                )
+            else:
+                selected_proposal = "필터(제안 선택)"
+        else:
+            st.error("No group selected")
+            return
 
-            if not available_subtypes:
-                st.error(f"No subtypes found for proposal: {selected_category}")
-                return
+        # MAIN AREA - TOP FILTERS
+        # Add custom CSS for better filter appearance
+        st.markdown("""
+        <style>
+        /* Style for top filter area */
+        .top-filters {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        /* Reduce padding for selectbox in columns */
+        .stSelectbox {
+            margin-bottom: 0.5rem;
+        }
+        /* Style the main content area */
+        .main-content {
+            padding-top: 1rem;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
-            # Second selectbox: Choose subtype
-            selected_subtype = st.sidebar.selectbox("하위 내용 선택", available_subtypes)
+        # Create container for top filters
+        with st.container():
+            col1, col2 = st.columns([1, 1])
 
-            if selected_subtype:
-                category_display = name_dictionary.get(selected_category, selected_category)
-                st.title(f"{category_display} - {selected_subtype}")
+            with col1:
+                # TOP FILTER 3: 구분 (Dimension selection)
+                dimension_options = list(dimension_config.keys())
+                selected_dimension_ui = st.selectbox(
+                    "구분",
+                    options=dimension_options,
+                    index=0,
+                    key="dimension_filter"
+                )
 
-                # Load and display markdown content if available (especially for 개요)
-                md_content = load_markdown_content(selected_category, selected_subtype)
-                if md_content:
-                    st.markdown(md_content)
-                    st.divider()
+            with col2:
+                # TOP FILTER 4: 하위구분 (Drilldown selection)
+                # Only get data bundle when necessary for drilldown options
+                if selected_proposal and not selected_proposal.startswith("필터") and \
+                   selected_dimension_ui and not selected_dimension_ui.startswith("필터") and \
+                   dimension_config.get(selected_dimension_ui, {}).get('type') == 'hierarchical':
+                    # Only load data for hierarchical dimensions that need drilldown options
+                    temp_data_bundle = get_data_bundle_for_proposal(selected_proposal, selected_dimension_ui)
+                    drilldown_options = get_drilldown_options(selected_dimension_ui, dimension_config, temp_data_bundle)
+                else:
+                    drilldown_options = get_drilldown_options(selected_dimension_ui, dimension_config, {})
 
-                # Load and display figure and aggregate_df (not for 개요)
-                if selected_subtype != "개요":
-                    fig, aggregate_df = load_proposal_data(
-                        selected_category, selected_subtype
+                drilldown_selection = st.selectbox(
+                    "하위구분",
+                    options=drilldown_options,
+                    index=0,
+                    key="drilldown_filter"
+                )
+
+        # Visual separator between filters and content
+        st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
+
+        # Main content area
+        if selected_proposal and selected_dimension_ui:
+            # Check different states and display appropriate content
+            if selected_group == "필터(그룹 선택)" and selected_proposal == "필터(개요)":
+                # Initial state - show overview
+                st.title("해당 그룹에 대한 설명")
+                st.markdown("""
+                ex)
+
+                ## 그룹 1: 조직 현황 및 인력 변동
+
+                - 이 그룹은 조직의 가장 기본적인 건강 상태(Health Check)를 진단합니다. "얼마나 많은 인력이, 얼마나 잘 유지되고 있는가?"라는 질문에 답하며, 인력의 유입(Flow-in)과 유출(Flow-out)을 집중적으로 추적합니다.
+                - 포함 그래프
+                    - 기본 인원 변동 현황 (전체 현황)
+                    - 연간 퇴사율 (핵심 유출 지표)
+                    - 입사 연도별 잔존율 (시점별 유출 지표)
+                    - 직무별 인력 유지 현황 (직무별 유출 지표)
+                    - 퇴사 예측 선행 지표 (유출 선행 지표)
+                """)
+            elif selected_group != "필터(그룹 선택)" and selected_proposal == "필터(제안 선택)":
+                # Group selected but no proposal selected
+                st.title("해당 제안에 대한 설명")
+                st.markdown(f"""
+                기존 내용 유지
+                단, '그래프 1: Division/Office별 성장 속도 비교'와 같은 제목은 삭제
+                글자 수도 줄일 수 있다면 줄이기
+                글씨 크기는 이전 페이지 포함해서 키울 수 있으면 키우기
+                """)
+            elif selected_proposal.startswith("필터"):
+                # Any other filter state
+                st.title("그래프 + 요약 테이블")
+                st.info("필터를 선택하여 데이터를 확인하세요.")
+            else:
+                # Valid proposal and dimension selected - show actual data
+                proposal_display = name_dictionary.get(selected_proposal, selected_proposal)
+                title = f"{proposal_display}"
+                if selected_dimension_ui not in ["전체", "필터(구분 선택)"]:
+                    title += f" - {selected_dimension_ui}"
+                if drilldown_selection not in ["전체", "필터(전체)"]:
+                    title += f" ({drilldown_selection})"
+                st.title(title)
+
+                # Load and display the proposal view
+                # Only load data bundle when actually displaying content
+                final_dimension = selected_dimension_ui if selected_dimension_ui != "필터(구분 선택)" else "전체"
+                final_drilldown = drilldown_selection if drilldown_selection not in ["필터(전체)"] else "전체"
+
+                with st.spinner("데이터를 불러오는 중..."):
+                    # Get data bundle only when needed for actual display
+                    data_bundle = get_data_bundle_for_proposal(selected_proposal, final_dimension)
+                    order_map = data_bundle.get("order_map", {})
+
+                    fig, aggregate_df = load_proposal_view(
+                        proposal_name=selected_proposal,
+                        dimension_ui_name=final_dimension,
+                        drilldown_selection=final_drilldown,
+                        dimension_config=dimension_config,
+                        data_bundle=data_bundle,
+                        order_map=order_map
                     )
+
+                    # Display the figure
                     if fig is not None:
                         if isinstance(fig, plt.Figure):
                             st.pyplot(fig)
                         elif isinstance(fig, go.Figure):
-                            st.plotly_chart(fig)
+                            st.plotly_chart(fig, use_container_width=True)
 
                         # Display aggregate_df if available
-                        if aggregate_df is not None:
+                        if aggregate_df is not None and not aggregate_df.empty:
                             st.subheader("데이터 테이블")
                             st.dataframe(aggregate_df, use_container_width=True)
                     else:
-                        st.write(
-                            "Could not load or find a figure for the selected proposal."
-                        )
+                        st.info("선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다.")
 
 
 if __name__ == "__main__":
