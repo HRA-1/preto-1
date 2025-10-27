@@ -122,7 +122,7 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
     if prepare_func:
         # Call the preparation function with default global filters
         with st.spinner(f"'{proposal_name}' 데이터를 불러오는 중..."):
-            return prepare_func(
+            result = prepare_func(
                 filter_division='전체',
                 filter_job_l1='전체',
                 filter_position='전체',
@@ -133,6 +133,29 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
                 filter_region='전체',
                 filter_contract='전체'
             )
+            # Handle different return structures from prepare functions
+            if isinstance(result, dict):
+                if "data_bundle" in result:
+                    # prepare_basic_proposal_data style: {"data_bundle": {...}, "order_map": {...}}
+                    data_bundle = result["data_bundle"]
+                    data_bundle["order_map"] = result.get("order_map", {})
+                    return data_bundle
+                elif "cohort_data_bundle" in result:
+                    # prepare_proposal_06_data style: {"cohort_data_bundle": {...}, "order_map": {...}}
+                    return {
+                        "cohort_data_bundle": result["cohort_data_bundle"],
+                        "order_map": result.get("order_map", {})
+                    }
+                elif "turnover_data" in result:
+                    # prepare_proposal_05_data style: {"turnover_data": {...}, "order_map": {...}}
+                    return {
+                        "turnover_data": result["turnover_data"],
+                        "order_map": result.get("order_map", {})
+                    }
+                else:
+                    # Standard style: {"analysis_df": ..., "order_map": ...} and variations
+                    return result
+            return result
     else:
         return {"analysis_df": pd.DataFrame(), "order_map": {}}
 
@@ -367,6 +390,10 @@ def main():
                         if aggregate_df is not None and not aggregate_df.empty:
                             st.subheader("데이터 테이블")
                             st.dataframe(aggregate_df, use_container_width=True)
+                    elif selected_proposal == "basic_proposal":
+                        # basic_proposal_view handles its own display with tabs
+                        # The view function already displayed content, so we don't need to do anything
+                        pass
                     else:
                         st.info("선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다.")
 
