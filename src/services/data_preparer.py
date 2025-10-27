@@ -953,12 +953,16 @@ def prepare_proposal_05_data(
                 
                 record = {'YEAR': year, 'DIMENSION': dim, 'CATEGORY': category, 'TURNOVER_RATE': rate}
                 # 드릴다운을 위한 상위 카테고리 정보 추가
-                if dim == 'OFFICE_NAME':
-                    parent_div = year_df[year_df['OFFICE_NAME'] == category]['DIVISION_NAME'].iloc[0]
-                    record['PARENT_DIM'] = parent_div
-                elif dim == 'JOB_L2_NAME':
-                    parent_job = year_df[year_df['JOB_L2_NAME'] == category]['JOB_L1_NAME'].iloc[0]
-                    record['PARENT_DIM'] = parent_job
+                try:
+                    if dim == 'OFFICE_NAME':
+                        parent_div = year_df[year_df['OFFICE_NAME'] == category]['DIVISION_NAME'].iloc[0]
+                        record['PARENT_DIM'] = parent_div
+                    elif dim == 'JOB_L2_NAME':
+                        parent_job = year_df[year_df['JOB_L2_NAME'] == category]['JOB_L1_NAME'].iloc[0]
+                        record['PARENT_DIM'] = parent_job
+                except IndexError:
+                    # 해당 카테고리에 데이터가 없는 예외적인 경우
+                    continue
                 
                 all_turnover_data.append(record)
     
@@ -1428,8 +1432,13 @@ def prepare_proposal_09_data(
 
     for year in all_years:
         year_end = pd.to_datetime(f'{year}-12-31')
-        active_in_year = emp_df[(emp_df['IN_DATE'] <= year_end) & (emp_df['OUT_DATE'].isnull() | (emp_df['OUT_DATE'] > year_end)) & (emp_df['EMP_ID'].isin(filtered_emp_ids))].copy()
-        changes_in_year = job_changes[job_changes['YEAR'] == year].copy()
+        active_in_year_base = emp_df[
+            (emp_df['IN_DATE'] <= year_end) & 
+            (emp_df['OUT_DATE'].isnull() | (emp_df['OUT_DATE'] > year_end)) & 
+            (emp_df['EMP_ID'].isin(filtered_emp_ids))
+        ]
+        active_in_year = active_in_year_base[['EMP_ID', 'IN_DATE']].copy()
+        changes_in_year = job_changes[job_changes['YEAR'] == year][['EMP_ID', 'JOB_APP_START_DATE']].copy()
         
         if active_in_year.empty: continue
 

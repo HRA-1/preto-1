@@ -74,7 +74,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     )
     fig.update_xaxes(dtick=1)
     
-    # --- [수정 1: 버그 수정 'CATEGORY' -> 'GROUP_NAME'] ---
     # 5. 요약 테이블(aggregate_df) 생성
     aggregate_df = plot_data.pivot_table(
         index='YEAR', columns='GROUP_NAME', values='MOBILITY_RATE', observed=False

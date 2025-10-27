@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from pandas.api.types import is_categorical_dtype
 
 def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 4: 조직 경험 자산 현황 그래프 및 피벗 테이블을 생성합니다.
-    app.py에서 전달된 dimension_config와 필터 값에 따라
-    다양한 차원의 근속년수 분포를 동적으로 시각화합니다.
+    aggregate_df가 drilldown_selection을 올바르게 반영하도록 수정되었습니다.
     """
     # data_bundle에서 analysis_df 추출
     analysis_df = data_bundle.get("analysis_df", pd.DataFrame())
@@ -23,28 +23,27 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         return fig, pd.DataFrame()
 
     # --- 2. 동적 그룹핑 및 제목 설정 ---
-
-    # 근속년수를 정수 단위로 그룹화 (x축)
     max_tenure = int(analysis_df['TENURE_YEARS'].max()) if not analysis_df['TENURE_YEARS'].empty else 0
+    analysis_df = analysis_df.copy() # SettingWithCopyWarning 방지
     analysis_df['TENURE_BIN'] = pd.cut(
         analysis_df['TENURE_YEARS'],
         bins=range(0, max_tenure + 2),
         right=False,
         labels=range(0, max_tenure + 1)
     )
-
-    plot_df = analysis_df.copy()
     
     # 설정(config)에 따라 동적으로 그룹핑 컬럼과 제목 결정
     if config['type'] == 'hierarchical' and drilldown_selection != '전체':
-        # 드릴다운 뷰 (예: '부서별' -> '경영지원본부' 선택 시)
         top_level_col = config['top']
         grouping_col = config['sub']
-        plot_df = plot_df[plot_df[top_level_col] == drilldown_selection]
+        plot_df = analysis_df[analysis_df[top_level_col] == drilldown_selection].copy()
+        if is_categorical_dtype(plot_df[grouping_col]):
+            plot_df[grouping_col] = plot_df[grouping_col].cat.remove_unused_categories()
+            
         category_order = [o for o in order_map.get(grouping_col, []) if o in plot_df[grouping_col].unique()]
         title_text = f"'{drilldown_selection}' 내 하위 그룹별 근속년수 분포"
     else:
-        # 최상위 뷰 (예: '부서별', '직무별', '성별' 등)
+        plot_df = analysis_df.copy()
         grouping_col = config.get('top', config.get('col'))
         category_order = order_map.get(grouping_col, [])
         title_text = f"{dimension_ui_name} 근속년수 분포"
@@ -98,8 +97,15 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     ).fillna(0).astype(int)
     
     if '합계' in aggregate_df.columns:
+        # category_order는 2번 단계에서 이미 뷰에 맞게 필터링됨
         cols_ordered = ['합계'] + [col for col in category_order if col in aggregate_df.columns and col != '합계']
-        remaining_cols = [col for col in aggregate_df.columns if col not in cols_ordered]
-        aggregate_df = aggregate_df[cols_ordered + remaining_cols]
+        
+        if config['type'] == 'hierarchical' and drilldown_selection != '전체':
+            # 드릴다운 뷰에서는 category_order에 있는 것만 정확히 보여줌
+            aggregate_df = aggregate_df[cols_ordered]
+        else:
+            # 최상위 뷰에서는 정의되지 않은 나머지 컬럼도 뒤에 붙여줌
+            remaining_cols = [col for col in aggregate_df.columns if col not in cols_ordered]
+            aggregate_df = aggregate_df[cols_ordered + remaining_cols]
     
     return fig, aggregate_df

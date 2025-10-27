@@ -40,7 +40,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         plot_df = analysis_df.copy()
         yaxis_col = config.get('top', config.get('col'))
         yaxis_order = order_map.get(yaxis_col, sorted(plot_df[yaxis_col].unique()))
-        title_text = f"{dimension_ui_name}별 인력 유지 현황"
+        title_text = f"{dimension_ui_name} 인력 유지 현황"
 
     if plot_df.empty:
         fig = go.Figure().update_layout(title_text=f"'{drilldown_selection}'에 해당하는 데이터가 없습니다.")
@@ -72,14 +72,16 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     fig.add_trace(go.Bar(
         y=df_active[yaxis_col], x=df_active['AVG_TENURE'], 
         name='재직자', orientation='h', marker_color='blue',
-        text=df_active['AVG_TENURE'].round(2), textposition='outside',
+        text=df_active['AVG_TENURE'].apply(lambda x: f'{x:.2f}' if pd.notna(x) else ''), # NaN 텍스트 제거
+        textposition='outside',
         customdata=df_active['HEADCOUNT'],
         hovertemplate='평균 재직기간: %{x:.2f}년<br>인원: %{customdata}명<extra></extra>'
     ))
     fig.add_trace(go.Bar(
         y=df_leaver[yaxis_col], x=df_leaver['AVG_TENURE'], 
         name='퇴사자', orientation='h', marker_color='red',
-        text=df_leaver['AVG_TENURE'].round(2), textposition='outside',
+        text=df_leaver['AVG_TENURE'].apply(lambda x: f'{x:.2f}' if pd.notna(x) else ''), # NaN 텍스트 제거
+        textposition='outside',
         customdata=df_leaver['HEADCOUNT'],
         hovertemplate='평균 재직기간: %{x:.2f}년<br>인원: %{customdata}명<extra></extra>'
     ))
@@ -115,7 +117,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     ).round(2)
     
     # 순서에 맞게 재정렬
-    aggregate_df = aggregate_df.reindex(yaxis_final_order)
+    aggregate_df = aggregate_df.reindex(yaxis_final_order).fillna('-')
     if '재직자' in aggregate_df.columns and '퇴사자' in aggregate_df.columns:
         aggregate_df = aggregate_df[['재직자', '퇴사자']] # 컬럼 순서 고정
 

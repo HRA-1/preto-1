@@ -26,11 +26,12 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         top_level_col = config.get('top')
         grouping_col_name = config.get('sub')
         
-        # 1. plot_data: 하위 그룹 데이터 필터링 (예: 'Office' 데이터 중 'Planning Division' 소속만)
-        plot_data = turnover_data[
-            (turnover_data['DIMENSION'] == grouping_col_name) & 
-            (turnover_data['PARENT_DIM'] == drilldown_selection)
-        ]
+        # 1. plot_data: 
+        # 1-1. 먼저 하위 그룹(예: 'OFFICE_NAME') 데이터만 추립니다. 
+        # (이 데이터 슬라이스에는 'PARENT_DIM' 컬럼이 보장됩니다.)
+        plot_data_source = turnover_data[turnover_data['DIMENSION'] == grouping_col_name]
+        # 1-2. 그 다음, PARENT_DIM을 기준으로 드릴다운 필터링을 적용합니다.
+        plot_data = plot_data_source[plot_data_source['PARENT_DIM'] == drilldown_selection]
         category_order = [o for o in order_map.get(grouping_col_name, []) if o in plot_data['CATEGORY'].unique()]
         
         # 2. total_turnover: 상위 그룹(예: 'Planning Division')의 평균을 '전체'로 사용
