@@ -113,6 +113,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     top_level_order = order_map.get(config.get('top', config.get('col')), [])
     final_cols = ['전체 평균'] + [col for col in top_level_order if col in aggregate_df.columns]
     remaining_cols = [col for col in aggregate_df.columns if col not in final_cols]
-    aggregate_df = aggregate_df[final_cols + remaining_cols].round(2).fillna('-')
+    aggregate_df = aggregate_df[final_cols + remaining_cols].round(2).fillna('-').T
     
     return fig, aggregate_df

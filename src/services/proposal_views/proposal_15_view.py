@@ -67,6 +67,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     agg_df = agg_df.rename(columns={'OT_BEFORE': '변경 전', 'OT_AFTER': '변경 후', 'DEPT_AVG': '부서 평균'})
     
     agg_df = agg_df.reindex(['전체 평균'] + order_map.get('DIVISION_NAME', []))
-    aggregate_df = agg_df.round(1).fillna('-').T
+    aggregate_df = agg_df.round(1).fillna('-')
 
     return fig, aggregate_df

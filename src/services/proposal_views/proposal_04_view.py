@@ -108,4 +108,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
             remaining_cols = [col for col in aggregate_df.columns if col not in cols_ordered]
             aggregate_df = aggregate_df[cols_ordered + remaining_cols]
     
+    aggregate_df = aggregate_df.T
+    
     return fig, aggregate_df

@@ -146,6 +146,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     index_order = ['재직자 월평균'] + numeric_indices_sorted
     aggregate_df = aggregate_df.reindex(index_order)
     
-    aggregate_df = aggregate_df.round(2).fillna('-')
+    aggregate_df = aggregate_df.round(2).fillna('-').T
 
     return fig, aggregate_df

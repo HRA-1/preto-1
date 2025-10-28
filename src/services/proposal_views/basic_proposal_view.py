@@ -80,7 +80,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
             final_cols = [col for col in cols_ordered if col in aggregate_df.columns]
             aggregate_df = aggregate_df[final_cols]
             
-            aggregate_df = aggregate_df.tail(tail_n)
+            aggregate_df = aggregate_df.tail(tail_n).T
 
         # 탭에 그래프와 테이블 그리기
         st.plotly_chart(fig, use_container_width=True)

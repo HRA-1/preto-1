@@ -124,6 +124,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
 
     formatted_df.loc[ot_slice, :] = formatted_df.loc[ot_slice, :].applymap(lambda x: f"{x:.1f}" if pd.notna(x) else '-')
     formatted_df.loc[leave_slice, :] = formatted_df.loc[leave_slice, :].applymap(lambda x: f"{x:.2f}%" if pd.notna(x) else '-')
-    aggregate_df = formatted_df
+    aggregate_df = formatted_df.T
     
     return fig, aggregate_df

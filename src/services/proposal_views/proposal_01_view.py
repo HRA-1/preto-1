@@ -100,6 +100,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     cols = ['전체 평균'] + [col for col in pivot_order if col in aggregate_df.columns]
     aggregate_df = aggregate_df[cols]
     promotion_step_order = ['Staff → Manager', 'Manager → Director']
-    aggregate_df = aggregate_df.reindex(promotion_step_order).round(2).fillna('-')
+    aggregate_df = aggregate_df.reindex(promotion_step_order).round(2).fillna('-').T
 
     return fig, aggregate_df

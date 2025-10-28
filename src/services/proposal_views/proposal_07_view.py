@@ -88,5 +88,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     else:
         # '전체'가 선택되었거나, 매핑되는 컬럼이 없는 경우, 기본 요약 테이블 생성
         aggregate_df = analysis_df.groupby(['JOB_CATEGORY', 'CAREER_TYPE'], observed=True)['TENURE_YEARS'].agg(['mean', 'count']).round(2)
+    
+    aggregate_df = aggregate_df.T
 
     return fig, aggregate_df

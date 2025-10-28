@@ -104,7 +104,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     aggregate_df = aggregate_df.set_index(pivot_col)
     
     # 정렬 순서에 맞게 인덱스 재정렬
-    final_index_order = xaxis_order + ['전체 평균']
+    final_index_order = ['전체 평균'] + xaxis_order
     existing_indices = [idx for idx in final_index_order if idx in aggregate_df.index]
     aggregate_df = aggregate_df.reindex(existing_indices)
 
@@ -115,9 +115,5 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     # ----- [수정된 부분] -----
     # .astype(int)를 적용하기 전에 .fillna(0)을 추가하여 NaN 값을 0으로 변환
     aggregate_df[['최고령', '최저령', '인원수']] = aggregate_df[['최고령', '최저령', '인원수']].fillna(0).astype(int)
-    # -------------------------
-    
-    # 최종적으로 행렬을 바꿔서(transpose) 보여주기
-    aggregate_df = aggregate_df.transpose()
 
     return fig, aggregate_df

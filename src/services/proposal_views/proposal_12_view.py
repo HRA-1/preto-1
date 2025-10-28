@@ -114,7 +114,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         cols = ['전체 평균'] + [col for col in xaxis_order if col in aggregate_df.columns]
         aggregate_df = aggregate_df[cols]
 
-    aggregate_df = aggregate_df.reindex(group_order).fillna('-')
+    aggregate_df = aggregate_df.reindex(group_order).fillna('-').T
     # ----- [수정된 부분 끝] -----
 
     return fig, aggregate_df

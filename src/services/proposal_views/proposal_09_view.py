@@ -85,6 +85,6 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
     # 컬럼 순서 재배치
     final_cols = ['전체 평균'] + [col for col in category_order if col in aggregate_df.columns]
     remaining_cols = [col for col in aggregate_df.columns if col not in final_cols]
-    aggregate_df = aggregate_df[final_cols + remaining_cols].round(2).fillna('-')
+    aggregate_df = aggregate_df[final_cols + remaining_cols].round(2).fillna('-').tail(10).T
     
     return fig, aggregate_df

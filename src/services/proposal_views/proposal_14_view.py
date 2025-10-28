@@ -138,7 +138,7 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         pivot_order = order_map.get(pivot_col, [])
         cols = ['전체 평균'] + [col for col in pivot_order if col in lateness_rate_agg.columns]
         aggregate_df = lateness_rate_agg[cols]
-        aggregate_df = aggregate_df.reindex(group_order).applymap(lambda x: f"{x:.2f}%").replace("0.00%", "-").replace("nan%", "-")
+        aggregate_df = aggregate_df.reindex(group_order).applymap(lambda x: f"{x:.2f}%").replace("0.00%", "-").replace("nan%", "-").T
     # --- [수정된 부분 끝] ---
 
     return fig, aggregate_df
