@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-def create_figure(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
+def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, dimension_config, order_map):
     """
     제안 2: 차세대 리더 승진 경로 분석 (생키 다이어그램)
     사전 가공된 승진 경로 데이터(data_bundle)를 받아 인터랙티브 생키 다이어그램을 생성합니다.
