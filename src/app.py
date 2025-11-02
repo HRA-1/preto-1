@@ -15,6 +15,7 @@ from services.config.filters_config import (
     ViewState,
     get_view_state,
     is_drilldown_placeholder,
+    should_disable_filters,
 )
 from services import data_preparer
 
@@ -364,13 +365,8 @@ def main():
         # ================================================================
         # SIDEBAR - Level 1 & 2 Filters
         # ================================================================
-        st.sidebar.title("HR Analytics\nGraph Collection")
-        st.sidebar.markdown(
-            """
-            더 이상 '감'과 '경험'에만 의존하는 HR의 시대는 지났습니다.\n
-            조직의 숨겨진 리스크와 기회를 객관적 지표로 증명하고 선제적으로 인재관리를 시작하세요.
-            """
-        )
+
+        st.sidebar.title("HR Analytics Graph Collection")
         st.sidebar.markdown("---")
 
         # LEFT FILTER 1: 그룹 살펴보기 (Group selection)
@@ -408,6 +404,10 @@ def main():
         # ================================================================
         # MAIN AREA - Level 3 & 4 Filters
         # ================================================================
+        # Determine if filters should be disabled
+        # L1(그룹)과 L2(제안)가 모두 선택되어야 L3, L4 필터 활성화
+        filters_disabled = should_disable_filters(selected_group, selected_proposal)
+
         # Custom CSS for filter appearance
         st.markdown(
             """
@@ -430,7 +430,6 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # Top filters container
         with st.container():
             col1, col2 = st.columns([1, 1])
 
@@ -438,7 +437,11 @@ def main():
                 # TOP FILTER 3: 구분 (Dimension selection)
                 dimension_options = list(DIMENSION_CONFIG.keys())
                 selected_dimension_ui = st.selectbox(
-                    "구분", options=dimension_options, index=0, key="dimension_filter"
+                    "구분",
+                    options=dimension_options,
+                    index=0,
+                    key="dimension_filter",
+                    disabled=filters_disabled,  # L1="개요"일 때 비활성화
                 )
 
             with col2:
@@ -466,7 +469,12 @@ def main():
                     options=drilldown_options,
                     index=0,
                     key="drilldown_filter",
+                    disabled=filters_disabled,  # L1, L2가 모두 선택되어야 활성화
                 )
+
+        # 필터 비활성화 시 사용자에게 안내 메시지
+        if filters_disabled:
+            st.caption("💡 그룹과 제안을 선택하면 구분 및 하위구분 필터를 사용할 수 있습니다.")
 
         # Visual separator
         st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)

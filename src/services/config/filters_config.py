@@ -239,3 +239,24 @@ def get_view_state(selected_group: str, selected_proposal: str) -> ViewState:
         return ViewState.PROPOSAL_SELECTION
     else:
         return ViewState.DATA_VISUALIZATION
+
+
+def should_disable_filters(selected_group: str, selected_proposal: str) -> bool:
+    """
+    Level 3, 4 필터를 비활성화해야 하는지 판별
+
+    제약 조건:
+    - L3, L4는 L1(그룹)과 L2(제안)가 모두 선택되어야 활성화됨
+    - L1이 "개요" OR L2가 "개요" → L3, L4 필터 비활성화
+    - L1≠"개요" AND L2≠"개요" → L3, L4 필터 활성화
+
+    Args:
+        selected_group: Level 1 그룹 선택값
+        selected_proposal: Level 2 제안 선택값
+
+    Returns:
+        bool: True면 L3, L4 필터 비활성화
+    """
+    return is_group_placeholder(selected_group) or is_proposal_placeholder(
+        selected_proposal
+    )
