@@ -35,21 +35,26 @@ st.set_page_config(
 )
 
 PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
-OVERVIEWS_DIR = "src/content/overviews"
-PROPOSAL_OVERVIEWS_DIR = "src/content/overviews/groups"
+OVERVIEWS_DIR = "src/overviews"
+PROPOSAL_OVERVIEWS_DIR = "src/overviews/groups"
 
 
-def load_markdown_content(filename):
+def load_markdown_content(filename, group_dir=None):
     """
     개요 마크다운 파일을 로드하여 내용을 반환
 
     Args:
         filename: 마크다운 파일명 (예: "group_overview.md")
+        group_dir: 그룹 디렉토리명 (예: "조직현황및인력변동"), None이면 루트
 
     Returns:
         str: 마크다운 파일 내용 (파일이 없으면 기본 메시지 반환)
     """
-    file_path = os.path.join(OVERVIEWS_DIR, filename)
+    if group_dir:
+        file_path = os.path.join(OVERVIEWS_DIR, "groups", group_dir, filename)
+    else:
+        file_path = os.path.join(OVERVIEWS_DIR, filename)
+
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
@@ -308,9 +313,12 @@ def render_proposal_selection(selected_group):
     Args:
         selected_group: 선택된 그룹명
     """
+    # 그룹 디렉토리명 생성 (공백 제거)
+    group_dir = selected_group.replace(" ", "")
+
     # 그룹별 개요 파일명 가져오기
     filename = GROUP_OVERVIEW_FILES.get(selected_group, "proposal_selection.md")
-    content = load_markdown_content(filename)
+    content = load_markdown_content(filename, group_dir=group_dir)
     st.markdown(content)
 
 
