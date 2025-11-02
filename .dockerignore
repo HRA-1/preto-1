@@ -2,3 +2,6 @@
 .gitignore
 Dockerfile
 README.md
+
+# Exclude generated overview markdown files
+notebooks/proposals/*_개요.md
