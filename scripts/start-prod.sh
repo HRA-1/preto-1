@@ -16,14 +16,6 @@ export STREAMLIT_DEV_MODE=false
 echo "🚀 Starting in PRODUCTION mode..."
 echo "🔧 STREAMLIT_DEV_MODE=false (1000 employees, 2020-current data)"
 
-# Sync markdown files before starting services
-echo "🔄 Syncing markdown files..."
-if [ -f "${SCRIPT_DIR}/sync-markdown.sh" ]; then
-    cd "${PROJECT_ROOT}" && ./scripts/sync-markdown.sh
-else
-    echo "⚠️  Markdown sync script not found, skipping..."
-fi
-
 # Start Streamlit app (production only)
 cd "${PROJECT_ROOT}"
 echo "🎯 Starting Streamlit app on port 8501..."

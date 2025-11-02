@@ -16,14 +16,6 @@ export STREAMLIT_DEV_MODE=true
 echo "🚀 Starting in DEVELOPMENT mode..."
 echo "🔧 STREAMLIT_DEV_MODE=true (50 employees, 2024-current data)"
 
-# Sync markdown files before starting services
-echo "🔄 Syncing markdown files..."
-if [ -f "${SCRIPT_DIR}/sync-markdown.sh" ]; then
-    cd "${PROJECT_ROOT}" && ./scripts/sync-markdown.sh
-else
-    echo "⚠️  Markdown sync script not found, skipping..."
-fi
-
 # Start Jupyter Notebook using the config file
 cd "${PROJECT_ROOT}"
 echo "📓 Starting Jupyter Notebook on port 8888..."
