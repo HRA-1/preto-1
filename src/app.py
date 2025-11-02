@@ -424,6 +424,16 @@ def main():
             return
 
         # ================================================================
+        # SIDEBAR - Bottom Links
+        # ================================================================
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("#### 소개글 보기")
+        st.sidebar.markdown("[📄 링크](#)", unsafe_allow_html=True)
+
+        st.sidebar.markdown("#### 설문 참여하기")
+        st.sidebar.markdown("[📝 링크](#)", unsafe_allow_html=True)
+
+        # ================================================================
         # MAIN AREA - Level 3 & 4 Filters
         # ================================================================
         # Determine if filters should be disabled
