@@ -14,10 +14,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': "HR Analytics Dashboard"
-    }
+        "Get Help": None,
+        "Report a bug": None,
+        "About": "HR Analytics Dashboard",
+    },
 )
 
 PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
@@ -29,10 +29,35 @@ def get_proposal_groups():
     """
     return {
         "필터(그룹 선택)": [],  # Placeholder for initial state
-        "조직 현황 및 인력 변동": ["basic_proposal", "proposal_05", "proposal_06", "proposal_08", "proposal_19"],
-        "성장 및 경력 개발": ["proposal_01", "proposal_02", "proposal_09", "proposal_15"],
-        "인력 구성 및 역량": ["proposal_03", "proposal_04", "proposal_07", "proposal_10"],
-        "근무 문화 및 워라밸": ["proposal_11", "proposal_12", "proposal_13", "proposal_14", "proposal_16", "proposal_17", "proposal_18", "proposal_20"]
+        "조직 현황 및 인력 변동": [
+            "basic_proposal",
+            "proposal_05",
+            "proposal_06",
+            "proposal_08",
+            "proposal_19",
+        ],
+        "성장 및 경력 개발": [
+            "proposal_01",
+            "proposal_02",
+            "proposal_09",
+            "proposal_15",
+        ],
+        "인력 구성 및 역량": [
+            "proposal_03",
+            "proposal_04",
+            "proposal_07",
+            "proposal_10",
+        ],
+        "근무 문화 및 워라밸": [
+            "proposal_11",
+            "proposal_12",
+            "proposal_13",
+            "proposal_14",
+            "proposal_16",
+            "proposal_17",
+            "proposal_18",
+            "proposal_20",
+        ],
     }
 
 
@@ -43,7 +68,11 @@ def get_dimension_config():
     return {
         "필터(구분 선택)": {"type": "single", "col": None},  # Placeholder
         "전체": {"type": "single", "col": None},
-        "부서별": {"type": "hierarchical", "top": "DIVISION_NAME", "sub": "OFFICE_NAME"},
+        "부서별": {
+            "type": "hierarchical",
+            "top": "DIVISION_NAME",
+            "sub": "OFFICE_NAME",
+        },
         "직무별": {"type": "hierarchical", "top": "JOB_L1_NAME", "sub": "JOB_L2_NAME"},
         "직위별": {"type": "single", "col": "POSITION_NAME"},
         "성별": {"type": "single", "col": "GENDER"},
@@ -51,8 +80,9 @@ def get_dimension_config():
         "경력구간별": {"type": "single", "col": "CAREER_BIN"},
         "연봉구간별": {"type": "single", "col": "SALARY_BIN"},
         "근무지역별": {"type": "single", "col": "REGION_CATEGORY"},
-        "계약형태별": {"type": "single", "col": "CONT_CATEGORY"}
+        "계약형태별": {"type": "single", "col": "CONT_CATEGORY"},
     }
+
 
 def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
     """
@@ -64,22 +94,27 @@ def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
 
     config = dimension_config.get(dimension_ui_name, {})
 
-    if config.get('type') == 'hierarchical':
+    if config.get("type") == "hierarchical":
         # For hierarchical dimensions, get unique top-level values
-        top_col = config.get('top')
+        top_col = config.get("top")
         if top_col and data_bundle:
             # Try to get from any available data source in the bundle
             for key, value in data_bundle.items():
                 if isinstance(value, dict):
                     for sub_key, sub_value in value.items():
-                        if isinstance(sub_value, pd.DataFrame) and top_col in sub_value.columns:
+                        if (
+                            isinstance(sub_value, pd.DataFrame)
+                            and top_col in sub_value.columns
+                        ):
                             unique_values = sub_value[top_col].dropna().unique()
-                            return ['필터(전체)', '전체'] + sorted(unique_values.tolist())
+                            return ["필터(전체)", "전체"] + sorted(
+                                unique_values.tolist()
+                            )
                 elif isinstance(value, pd.DataFrame) and top_col in value.columns:
                     unique_values = value[top_col].dropna().unique()
-                    return ['필터(전체)', '전체'] + sorted(unique_values.tolist())
+                    return ["필터(전체)", "전체"] + sorted(unique_values.tolist())
 
-    return ['필터(전체)', '전체']
+    return ["필터(전체)", "전체"]
 
 
 @st.cache_data
@@ -122,15 +157,15 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
         # Call the preparation function with default global filters
         with st.spinner(f"'{proposal_name}' 데이터를 불러오는 중..."):
             result = prepare_func(
-                filter_division='전체',
-                filter_job_l1='전체',
-                filter_position='전체',
-                filter_gender='전체',
-                filter_age_bin='전체',
-                filter_career_bin='전체',
-                filter_salary_bin='전체',
-                filter_region='전체',
-                filter_contract='전체'
+                filter_division="전체",
+                filter_job_l1="전체",
+                filter_position="전체",
+                filter_gender="전체",
+                filter_age_bin="전체",
+                filter_career_bin="전체",
+                filter_salary_bin="전체",
+                filter_region="전체",
+                filter_contract="전체",
             )
             # Handle different return structures from prepare functions
             if isinstance(result, dict):
@@ -143,13 +178,13 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
                     # prepare_proposal_06_data style: {"cohort_data_bundle": {...}, "order_map": {...}}
                     return {
                         "cohort_data_bundle": result["cohort_data_bundle"],
-                        "order_map": result.get("order_map", {})
+                        "order_map": result.get("order_map", {}),
                     }
                 elif "turnover_data" in result:
                     # prepare_proposal_05_data style: {"turnover_data": {...}, "order_map": {...}}
                     return {
                         "turnover_data": result["turnover_data"],
-                        "order_map": result.get("order_map", {})
+                        "order_map": result.get("order_map", {}),
                     }
                 else:
                     # Standard style: {"analysis_df": ..., "order_map": ...} and variations
@@ -160,7 +195,14 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
 
 
 @st.cache_data
-def load_proposal_view(proposal_name: str, dimension_ui_name: str, drilldown_selection: str, dimension_config: dict, data_bundle: dict, order_map: dict):
+def load_proposal_view(
+    proposal_name: str,
+    dimension_ui_name: str,
+    drilldown_selection: str,
+    dimension_config: dict,
+    data_bundle: dict,
+    order_map: dict,
+):
     """
     Dynamically imports and executes the proposal view module.
     Returns a tuple (figure, aggregate_df).
@@ -174,7 +216,11 @@ def load_proposal_view(proposal_name: str, dimension_ui_name: str, drilldown_sel
 
     try:
         # Create a unique module name to avoid conflicts
-        module_name = f"{proposal_name}_view_{dimension_ui_name}_{drilldown_selection}".replace(".", "_").replace(" ", "_")
+        module_name = (
+            f"{proposal_name}_view_{dimension_ui_name}_{drilldown_selection}".replace(
+                ".", "_"
+            ).replace(" ", "_")
+        )
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         if spec is None or spec.loader is None:
             st.error(f"Could not create module spec for {module_filename}.")
@@ -190,12 +236,14 @@ def load_proposal_view(proposal_name: str, dimension_ui_name: str, drilldown_sel
                 dimension_ui_name=dimension_ui_name,
                 drilldown_selection=drilldown_selection,
                 dimension_config=dimension_config,
-                order_map=order_map
+                order_map=order_map,
             )
             if isinstance(result, tuple) and len(result) == 2:
                 return result
             else:
-                st.warning(f"create_figure_and_df in {module_filename} should return a tuple (figure, aggregate_df)")
+                st.warning(
+                    f"create_figure_and_df in {module_filename} should return a tuple (figure, aggregate_df)"
+                )
                 return None, None
         else:
             st.warning(f"No create_figure_and_df function found in {module_filename}")
@@ -204,6 +252,7 @@ def load_proposal_view(proposal_name: str, dimension_ui_name: str, drilldown_sel
     except Exception as e:
         st.error(f"Error loading view from {module_filename}: {e}")
         import traceback
+
         st.error(traceback.format_exc())
         return None, None
 
@@ -229,18 +278,14 @@ def main():
 
         # LEFT FILTER 1: 그룹 살펴보기 (Group selection)
         selected_group = st.sidebar.selectbox(
-            "그룹 살펴보기",
-            options=list(proposal_groups.keys()),
-            index=0
+            "그룹 살펴보기", options=list(proposal_groups.keys()), index=0
         )
 
         # LEFT FILTER 2: 제안 살펴보기 (Proposal selection within the group)
         if selected_group == "필터(그룹 선택)":
             # Show placeholder for proposal selection
             selected_proposal = st.sidebar.selectbox(
-                "제안 살펴보기",
-                options=["필터(개요)"],
-                index=0
+                "제안 살펴보기", options=["필터(개요)"], index=0
             )
         elif selected_group and selected_group != "필터(그룹 선택)":
             proposals_in_group = proposal_groups[selected_group]
@@ -249,8 +294,10 @@ def main():
                 selected_proposal = st.sidebar.selectbox(
                     "제안 살펴보기",
                     options=proposal_options,
-                    format_func=lambda x: x if x.startswith("필터") else name_dictionary.get(x, x),
-                    index=0
+                    format_func=lambda x: (
+                        x if x.startswith("필터") else name_dictionary.get(x, x)
+                    ),
+                    index=0,
                 )
             else:
                 selected_proposal = "필터(제안 선택)"
@@ -260,7 +307,8 @@ def main():
 
         # MAIN AREA - TOP FILTERS
         # Add custom CSS for better filter appearance
-        st.markdown("""
+        st.markdown(
+            """
         <style>
         /* Style for top filter area */
         .top-filters {
@@ -279,7 +327,9 @@ def main():
             padding-top: 1rem;
         }
         </style>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         # Create container for top filters
         with st.container():
@@ -289,29 +339,37 @@ def main():
                 # TOP FILTER 3: 구분 (Dimension selection)
                 dimension_options = list(dimension_config.keys())
                 selected_dimension_ui = st.selectbox(
-                    "구분",
-                    options=dimension_options,
-                    index=0,
-                    key="dimension_filter"
+                    "구분", options=dimension_options, index=0, key="dimension_filter"
                 )
 
             with col2:
                 # TOP FILTER 4: 하위구분 (Drilldown selection)
                 # Only get data bundle when necessary for drilldown options
-                if selected_proposal and not selected_proposal.startswith("필터") and \
-                   selected_dimension_ui and not selected_dimension_ui.startswith("필터") and \
-                   dimension_config.get(selected_dimension_ui, {}).get('type') == 'hierarchical':
+                if (
+                    selected_proposal
+                    and not selected_proposal.startswith("필터")
+                    and selected_dimension_ui
+                    and not selected_dimension_ui.startswith("필터")
+                    and dimension_config.get(selected_dimension_ui, {}).get("type")
+                    == "hierarchical"
+                ):
                     # Only load data for hierarchical dimensions that need drilldown options
-                    temp_data_bundle = get_data_bundle_for_proposal(selected_proposal, selected_dimension_ui)
-                    drilldown_options = get_drilldown_options(selected_dimension_ui, dimension_config, temp_data_bundle)
+                    temp_data_bundle = get_data_bundle_for_proposal(
+                        selected_proposal, selected_dimension_ui
+                    )
+                    drilldown_options = get_drilldown_options(
+                        selected_dimension_ui, dimension_config, temp_data_bundle
+                    )
                 else:
-                    drilldown_options = get_drilldown_options(selected_dimension_ui, dimension_config, {})
+                    drilldown_options = get_drilldown_options(
+                        selected_dimension_ui, dimension_config, {}
+                    )
 
                 drilldown_selection = st.selectbox(
                     "하위구분",
                     options=drilldown_options,
                     index=0,
-                    key="drilldown_filter"
+                    key="drilldown_filter",
                 )
 
         # Visual separator between filters and content
@@ -320,10 +378,14 @@ def main():
         # Main content area
         if selected_proposal and selected_dimension_ui:
             # Check different states and display appropriate content
-            if selected_group == "필터(그룹 선택)" and selected_proposal == "필터(개요)":
+            if (
+                selected_group == "필터(그룹 선택)"
+                and selected_proposal == "필터(개요)"
+            ):
                 # Initial state - show overview
                 st.title("해당 그룹에 대한 설명")
-                st.markdown("""
+                st.markdown(
+                    """
                 ex)
 
                 ## 그룹 1: 조직 현황 및 인력 변동
@@ -335,23 +397,31 @@ def main():
                     - 입사 연도별 잔존율 (시점별 유출 지표)
                     - 직무별 인력 유지 현황 (직무별 유출 지표)
                     - 퇴사 예측 선행 지표 (유출 선행 지표)
-                """)
-            elif selected_group != "필터(그룹 선택)" and selected_proposal == "필터(제안 선택)":
+                """
+                )
+            elif (
+                selected_group != "필터(그룹 선택)"
+                and selected_proposal == "필터(제안 선택)"
+            ):
                 # Group selected but no proposal selected
                 st.title("해당 제안에 대한 설명")
-                st.markdown(f"""
+                st.markdown(
+                    f"""
                 기존 내용 유지
                 단, '그래프 1: Division/Office별 성장 속도 비교'와 같은 제목은 삭제
                 글자 수도 줄일 수 있다면 줄이기
                 글씨 크기는 이전 페이지 포함해서 키울 수 있으면 키우기
-                """)
+                """
+                )
             elif selected_proposal.startswith("필터"):
                 # Any other filter state
                 st.title("그래프 + 요약 테이블")
                 st.info("필터를 선택하여 데이터를 확인하세요.")
             else:
                 # Valid proposal and dimension selected - show actual data
-                proposal_display = name_dictionary.get(selected_proposal, selected_proposal)
+                proposal_display = name_dictionary.get(
+                    selected_proposal, selected_proposal
+                )
                 title = f"{proposal_display}"
                 if selected_dimension_ui not in ["전체", "필터(구분 선택)"]:
                     title += f" - {selected_dimension_ui}"
@@ -361,12 +431,22 @@ def main():
 
                 # Load and display the proposal view
                 # Only load data bundle when actually displaying content
-                final_dimension = selected_dimension_ui if selected_dimension_ui != "필터(구분 선택)" else "전체"
-                final_drilldown = drilldown_selection if drilldown_selection not in ["필터(전체)"] else "전체"
+                final_dimension = (
+                    selected_dimension_ui
+                    if selected_dimension_ui != "필터(구분 선택)"
+                    else "전체"
+                )
+                final_drilldown = (
+                    drilldown_selection
+                    if drilldown_selection not in ["필터(전체)"]
+                    else "전체"
+                )
 
                 with st.spinner("데이터를 불러오는 중..."):
                     # Get data bundle only when needed for actual display
-                    data_bundle = get_data_bundle_for_proposal(selected_proposal, final_dimension)
+                    data_bundle = get_data_bundle_for_proposal(
+                        selected_proposal, final_dimension
+                    )
                     order_map = data_bundle.get("order_map", {})
 
                     fig, aggregate_df = load_proposal_view(
@@ -375,7 +455,7 @@ def main():
                         drilldown_selection=final_drilldown,
                         dimension_config=dimension_config,
                         data_bundle=data_bundle,
-                        order_map=order_map
+                        order_map=order_map,
                     )
 
                     # Display the figure
@@ -394,7 +474,9 @@ def main():
                         # The view function already displayed content, so we don't need to do anything
                         pass
                     else:
-                        st.info("선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다.")
+                        st.info(
+                            "선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다."
+                        )
 
 
 if __name__ == "__main__":
