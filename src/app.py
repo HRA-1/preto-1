@@ -5,7 +5,13 @@ import importlib.util
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
-from services.helpers.dict import name_dictionary
+from services.config.filters_config import (
+    FILTER_PLACEHOLDERS,
+    PROPOSAL_TITLES,
+    PROPOSAL_GROUPS,
+    DIMENSION_CONFIG,
+    PROPOSAL_DATA_FUNCTION_NAMES,
+)
 from services import data_preparer
 
 # Configure page layout - must be first st command
@@ -23,74 +29,13 @@ st.set_page_config(
 PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
 
 
-def get_proposal_groups():
-    """
-    Returns proposal groups for the first filter.
-    """
-    return {
-        "필터(그룹 선택)": [],  # Placeholder for initial state
-        "조직 현황 및 인력 변동": [
-            "basic_proposal",
-            "proposal_05",
-            "proposal_06",
-            "proposal_08",
-            "proposal_19",
-        ],
-        "성장 및 경력 개발": [
-            "proposal_01",
-            "proposal_02",
-            "proposal_09",
-            "proposal_15",
-        ],
-        "인력 구성 및 역량": [
-            "proposal_03",
-            "proposal_04",
-            "proposal_07",
-            "proposal_10",
-        ],
-        "근무 문화 및 워라밸": [
-            "proposal_11",
-            "proposal_12",
-            "proposal_13",
-            "proposal_14",
-            "proposal_16",
-            "proposal_17",
-            "proposal_18",
-            "proposal_20",
-        ],
-    }
-
-
-def get_dimension_config():
-    """
-    Returns dimension configuration for the third filter.
-    """
-    return {
-        "필터(구분 선택)": {"type": "single", "col": None},  # Placeholder
-        "전체": {"type": "single", "col": None},
-        "부서별": {
-            "type": "hierarchical",
-            "top": "DIVISION_NAME",
-            "sub": "OFFICE_NAME",
-        },
-        "직무별": {"type": "hierarchical", "top": "JOB_L1_NAME", "sub": "JOB_L2_NAME"},
-        "직위별": {"type": "single", "col": "POSITION_NAME"},
-        "성별": {"type": "single", "col": "GENDER"},
-        "연령대별": {"type": "single", "col": "AGE_BIN"},
-        "경력구간별": {"type": "single", "col": "CAREER_BIN"},
-        "연봉구간별": {"type": "single", "col": "SALARY_BIN"},
-        "근무지역별": {"type": "single", "col": "REGION_CATEGORY"},
-        "계약형태별": {"type": "single", "col": "CONT_CATEGORY"},
-    }
-
-
 def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
     """
     Returns drilldown options based on the selected dimension.
     """
     # If dimension is the placeholder, return placeholder for drilldown too
-    if dimension_ui_name == "필터(구분 선택)":
-        return ["필터(전체)"]
+    if dimension_ui_name == FILTER_PLACEHOLDERS["level3_select"]:
+        return [FILTER_PLACEHOLDERS["level4_all"]]
 
     config = dimension_config.get(dimension_ui_name, {})
 
@@ -107,14 +52,21 @@ def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
                             and top_col in sub_value.columns
                         ):
                             unique_values = sub_value[top_col].dropna().unique()
-                            return ["필터(전체)", "전체"] + sorted(
-                                unique_values.tolist()
-                            )
+                            return [
+                                FILTER_PLACEHOLDERS["level4_all"],
+                                FILTER_PLACEHOLDERS["drilldown_all"],
+                            ] + sorted(unique_values.tolist())
                 elif isinstance(value, pd.DataFrame) and top_col in value.columns:
                     unique_values = value[top_col].dropna().unique()
-                    return ["필터(전체)", "전체"] + sorted(unique_values.tolist())
+                    return [
+                        FILTER_PLACEHOLDERS["level4_all"],
+                        FILTER_PLACEHOLDERS["drilldown_all"],
+                    ] + sorted(unique_values.tolist())
 
-    return ["필터(전체)", "전체"]
+    return [
+        FILTER_PLACEHOLDERS["level4_all"],
+        FILTER_PLACEHOLDERS["drilldown_all"],
+    ]
 
 
 @st.cache_data
@@ -127,32 +79,9 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
     if not proposal_name or proposal_name.startswith("필터"):
         return {"analysis_df": pd.DataFrame(), "order_map": {}}
 
-    # Map proposal names to data preparation functions
-    prepare_function_map = {
-        "basic_proposal": data_preparer.prepare_basic_proposal_data,
-        "proposal_01": data_preparer.prepare_proposal_01_data,
-        "proposal_02": data_preparer.prepare_proposal_02_data,
-        "proposal_03": data_preparer.prepare_proposal_03_data,
-        "proposal_04": data_preparer.prepare_proposal_04_data,
-        "proposal_05": data_preparer.prepare_proposal_05_data,
-        "proposal_06": data_preparer.prepare_proposal_06_data,
-        "proposal_07": data_preparer.prepare_proposal_07_data,
-        "proposal_08": data_preparer.prepare_proposal_08_data,
-        "proposal_09": data_preparer.prepare_proposal_09_data,
-        "proposal_10": data_preparer.prepare_proposal_10_data,
-        "proposal_11": data_preparer.prepare_proposal_11_data,
-        "proposal_12": data_preparer.prepare_proposal_12_data,
-        "proposal_13": data_preparer.prepare_proposal_13_data,
-        "proposal_14": data_preparer.prepare_proposal_14_data,
-        "proposal_15": data_preparer.prepare_proposal_15_data,
-        "proposal_16": data_preparer.prepare_proposal_16_data,
-        "proposal_17": data_preparer.prepare_proposal_17_data,
-        "proposal_18": data_preparer.prepare_proposal_18_data,
-        "proposal_19": data_preparer.prepare_proposal_19_data,
-        "proposal_20": data_preparer.prepare_proposal_20_data,
-    }
-
-    prepare_func = prepare_function_map.get(proposal_name)
+    # Get data preparation function from config
+    function_name = PROPOSAL_DATA_FUNCTION_NAMES.get(proposal_name)
+    prepare_func = getattr(data_preparer, function_name, None) if function_name else None
     if prepare_func:
         # Call the preparation function with default global filters
         with st.spinner(f"'{proposal_name}' 데이터를 불러오는 중..."):
@@ -272,35 +201,31 @@ def main():
         )
         st.sidebar.markdown("---")  # Separator line
 
-        # Get configuration
-        proposal_groups = get_proposal_groups()
-        dimension_config = get_dimension_config()
-
         # LEFT FILTER 1: 그룹 살펴보기 (Group selection)
         selected_group = st.sidebar.selectbox(
-            "그룹 살펴보기", options=list(proposal_groups.keys()), index=0
+            "그룹 살펴보기", options=list(PROPOSAL_GROUPS.keys()), index=0
         )
 
         # LEFT FILTER 2: 제안 살펴보기 (Proposal selection within the group)
-        if selected_group == "필터(그룹 선택)":
+        if selected_group == FILTER_PLACEHOLDERS["level1_default"]:
             # Show placeholder for proposal selection
             selected_proposal = st.sidebar.selectbox(
-                "제안 살펴보기", options=["필터(개요)"], index=0
+                "제안 살펴보기", options=[FILTER_PLACEHOLDERS["level2_overview"]], index=0
             )
-        elif selected_group and selected_group != "필터(그룹 선택)":
-            proposals_in_group = proposal_groups[selected_group]
+        elif selected_group and selected_group != FILTER_PLACEHOLDERS["level1_default"]:
+            proposals_in_group = PROPOSAL_GROUPS[selected_group]
             if proposals_in_group:
-                proposal_options = ["필터(제안 선택)"] + proposals_in_group
+                proposal_options = [FILTER_PLACEHOLDERS["level2_select"]] + proposals_in_group
                 selected_proposal = st.sidebar.selectbox(
                     "제안 살펴보기",
                     options=proposal_options,
                     format_func=lambda x: (
-                        x if x.startswith("필터") else name_dictionary.get(x, x)
+                        x if x.startswith("필터") else PROPOSAL_TITLES.get(x, x)
                     ),
                     index=0,
                 )
             else:
-                selected_proposal = "필터(제안 선택)"
+                selected_proposal = FILTER_PLACEHOLDERS["level2_select"]
         else:
             st.error("No group selected")
             return
@@ -337,7 +262,7 @@ def main():
 
             with col1:
                 # TOP FILTER 3: 구분 (Dimension selection)
-                dimension_options = list(dimension_config.keys())
+                dimension_options = list(DIMENSION_CONFIG.keys())
                 selected_dimension_ui = st.selectbox(
                     "구분", options=dimension_options, index=0, key="dimension_filter"
                 )
@@ -350,7 +275,7 @@ def main():
                     and not selected_proposal.startswith("필터")
                     and selected_dimension_ui
                     and not selected_dimension_ui.startswith("필터")
-                    and dimension_config.get(selected_dimension_ui, {}).get("type")
+                    and DIMENSION_CONFIG.get(selected_dimension_ui, {}).get("type")
                     == "hierarchical"
                 ):
                     # Only load data for hierarchical dimensions that need drilldown options
@@ -358,11 +283,11 @@ def main():
                         selected_proposal, selected_dimension_ui
                     )
                     drilldown_options = get_drilldown_options(
-                        selected_dimension_ui, dimension_config, temp_data_bundle
+                        selected_dimension_ui, DIMENSION_CONFIG, temp_data_bundle
                     )
                 else:
                     drilldown_options = get_drilldown_options(
-                        selected_dimension_ui, dimension_config, {}
+                        selected_dimension_ui, DIMENSION_CONFIG, {}
                     )
 
                 drilldown_selection = st.selectbox(
@@ -379,8 +304,8 @@ def main():
         if selected_proposal and selected_dimension_ui:
             # Check different states and display appropriate content
             if (
-                selected_group == "필터(그룹 선택)"
-                and selected_proposal == "필터(개요)"
+                selected_group == FILTER_PLACEHOLDERS["level1_default"]
+                and selected_proposal == FILTER_PLACEHOLDERS["level2_overview"]
             ):
                 # Initial state - show overview
                 st.title("해당 그룹에 대한 설명")
@@ -400,8 +325,8 @@ def main():
                 """
                 )
             elif (
-                selected_group != "필터(그룹 선택)"
-                and selected_proposal == "필터(제안 선택)"
+                selected_group != FILTER_PLACEHOLDERS["level1_default"]
+                and selected_proposal == FILTER_PLACEHOLDERS["level2_select"]
             ):
                 # Group selected but no proposal selected
                 st.title("해당 제안에 대한 설명")
@@ -419,13 +344,19 @@ def main():
                 st.info("필터를 선택하여 데이터를 확인하세요.")
             else:
                 # Valid proposal and dimension selected - show actual data
-                proposal_display = name_dictionary.get(
+                proposal_display = PROPOSAL_TITLES.get(
                     selected_proposal, selected_proposal
                 )
                 title = f"{proposal_display}"
-                if selected_dimension_ui not in ["전체", "필터(구분 선택)"]:
+                if selected_dimension_ui not in [
+                    FILTER_PLACEHOLDERS["drilldown_all"],
+                    FILTER_PLACEHOLDERS["level3_select"],
+                ]:
                     title += f" - {selected_dimension_ui}"
-                if drilldown_selection not in ["전체", "필터(전체)"]:
+                if drilldown_selection not in [
+                    FILTER_PLACEHOLDERS["drilldown_all"],
+                    FILTER_PLACEHOLDERS["level4_all"],
+                ]:
                     title += f" ({drilldown_selection})"
                 st.title(title)
 
@@ -433,13 +364,13 @@ def main():
                 # Only load data bundle when actually displaying content
                 final_dimension = (
                     selected_dimension_ui
-                    if selected_dimension_ui != "필터(구분 선택)"
-                    else "전체"
+                    if selected_dimension_ui != FILTER_PLACEHOLDERS["level3_select"]
+                    else FILTER_PLACEHOLDERS["drilldown_all"]
                 )
                 final_drilldown = (
                     drilldown_selection
-                    if drilldown_selection not in ["필터(전체)"]
-                    else "전체"
+                    if drilldown_selection not in [FILTER_PLACEHOLDERS["level4_all"]]
+                    else FILTER_PLACEHOLDERS["drilldown_all"]
                 )
 
                 with st.spinner("데이터를 불러오는 중..."):
@@ -453,7 +384,7 @@ def main():
                         proposal_name=selected_proposal,
                         dimension_ui_name=final_dimension,
                         drilldown_selection=final_drilldown,
-                        dimension_config=dimension_config,
+                        dimension_config=DIMENSION_CONFIG,
                         data_bundle=data_bundle,
                         order_map=order_map,
                     )
