@@ -30,6 +30,29 @@ st.set_page_config(
 )
 
 PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
+OVERVIEWS_DIR = "src/content/overviews"
+
+
+def load_markdown_content(filename):
+    """
+    개요 마크다운 파일을 로드하여 내용을 반환
+
+    Args:
+        filename: 마크다운 파일명 (예: "group_overview.md")
+
+    Returns:
+        str: 마크다운 파일 내용 (파일이 없으면 기본 메시지 반환)
+    """
+    file_path = os.path.join(OVERVIEWS_DIR, filename)
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        st.warning(f"개요 파일을 찾을 수 없습니다: {filename}")
+        return f"# 콘텐츠를 불러올 수 없습니다\n\n`{file_path}` 파일이 존재하지 않습니다."
+    except Exception as e:
+        st.error(f"파일 로드 중 오류 발생: {e}")
+        return f"# 오류\n\n파일을 읽는 중 오류가 발생했습니다."
 
 
 def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
@@ -252,22 +275,8 @@ def render_group_overview():
     ViewState.GROUP_OVERVIEW 상태의 렌더링
     그룹 개요 페이지 표시 (L1=개요, L2=개요)
     """
-    st.title("해당 그룹에 대한 설명")
-    st.markdown(
-        """
-        ex)
-
-        ## 그룹 1: 조직 현황 및 인력 변동
-
-        - 이 그룹은 조직의 가장 기본적인 건강 상태(Health Check)를 진단합니다. "얼마나 많은 인력이, 얼마나 잘 유지되고 있는가?"라는 질문에 답하며, 인력의 유입(Flow-in)과 유출(Flow-out)을 집중적으로 추적합니다.
-        - 포함 그래프
-            - 기본 인원 변동 현황 (전체 현황)
-            - 연간 퇴사율 (핵심 유출 지표)
-            - 입사 연도별 잔존율 (시점별 유출 지표)
-            - 직무별 인력 유지 현황 (직무별 유출 지표)
-            - 퇴사 예측 선행 지표 (유출 선행 지표)
-        """
-    )
+    content = load_markdown_content("group_overview.md")
+    st.markdown(content)
 
 
 def render_proposal_selection():
