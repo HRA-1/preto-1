@@ -29,11 +29,10 @@ def get_proposal_groups():
     """
     return {
         "필터(그룹 선택)": [],  # Placeholder for initial state
-        "인력 현황": ["basic_proposal", "proposal_01", "proposal_02", "proposal_03", "proposal_04"],
-        "퇴사/유지": ["proposal_05", "proposal_06", "proposal_07", "proposal_08", "proposal_09"],
-        "보상": ["proposal_10"],
-        "근태": ["proposal_11", "proposal_12", "proposal_13", "proposal_14", "proposal_15", "proposal_16", "proposal_17"],
-        "휴가": ["proposal_18", "proposal_19", "proposal_20"]
+        "조직 현황 및 인력 변동": ["basic_proposal", "proposal_05", "proposal_06", "proposal_08", "proposal_19"],
+        "성장 및 경력 개발": ["proposal_01", "proposal_02", "proposal_09", "proposal_15"],
+        "인력 구성 및 역량": ["proposal_03", "proposal_04", "proposal_07", "proposal_10"],
+        "근무 문화 및 워라밸": ["proposal_11", "proposal_12", "proposal_13", "proposal_14", "proposal_16", "proposal_17", "proposal_18", "proposal_20"]
     }
 
 
