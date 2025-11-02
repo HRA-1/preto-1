@@ -12,10 +12,13 @@ from services.config.filters_config import (
     DIMENSION_CONFIG,
     PROPOSAL_DATA_FUNCTION_NAMES,
     GROUP_OVERVIEW_FILES,
+    PROPOSAL_FILTER_FORMATS,
     ViewState,
     get_view_state,
     is_drilldown_placeholder,
+    is_proposal_placeholder,
     should_disable_filters,
+    get_dimension_options_for_proposal,
 )
 from services import data_preparer
 
@@ -59,9 +62,20 @@ def load_markdown_content(filename):
         return f"# 오류\n\n파일을 읽는 중 오류가 발생했습니다."
 
 
-def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
+def get_drilldown_options(
+    dimension_ui_name, dimension_config, data_bundle, proposal_name=None
+):
     """
-    Returns drilldown options based on the selected dimension.
+    Returns drilldown options based on the selected dimension and proposal format.
+
+    Args:
+        dimension_ui_name: Selected L3 dimension (e.g., "부서별")
+        dimension_config: DIMENSION_CONFIG dictionary
+        data_bundle: Data loaded from data_preparer
+        proposal_name: Selected proposal ID (e.g., "proposal_01")
+
+    Returns:
+        list[str]: L4 drilldown options
     """
     # If dimension is the placeholder, return placeholder for drilldown too
     if dimension_ui_name == FILTER_PLACEHOLDERS["level3_select"]:
@@ -69,6 +83,21 @@ def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
 
     config = dimension_config.get(dimension_ui_name, {})
 
+    # Check proposal format to determine drilldown behavior
+    format_type = (
+        PROPOSAL_FILTER_FORMATS.get(proposal_name, "FORMAT_A")
+        if proposal_name
+        else "FORMAT_A"
+    )
+
+    # Format B and C: Always flat, no hierarchical drilldown
+    if format_type in ["FORMAT_B", "FORMAT_C"]:
+        return [
+            FILTER_PLACEHOLDERS["level4_all"],
+            FILTER_PLACEHOLDERS["drilldown_all"],
+        ]
+
+    # Format A: Support hierarchical drilldown for 부서별/직무별
     if config.get("type") == "hierarchical":
         # For hierarchical dimensions, get unique top-level values
         top_col = config.get("top")
@@ -435,7 +464,15 @@ def main():
 
             with col1:
                 # TOP FILTER 3: 구분 (Dimension selection)
-                dimension_options = list(DIMENSION_CONFIG.keys())
+                # 제안(L2)에 따라 동적으로 옵션 생성
+                if not is_proposal_placeholder(selected_proposal):
+                    dimension_options = get_dimension_options_for_proposal(
+                        selected_proposal
+                    )
+                else:
+                    # 제안이 선택되지 않은 경우 전체 옵션 표시
+                    dimension_options = list(DIMENSION_CONFIG.keys())
+
                 selected_dimension_ui = st.selectbox(
                     "구분",
                     options=dimension_options,
@@ -457,11 +494,17 @@ def main():
                         selected_proposal, selected_dimension_ui
                     )
                     drilldown_options = get_drilldown_options(
-                        selected_dimension_ui, DIMENSION_CONFIG, temp_data_bundle
+                        selected_dimension_ui,
+                        DIMENSION_CONFIG,
+                        temp_data_bundle,
+                        selected_proposal,
                     )
                 else:
                     drilldown_options = get_drilldown_options(
-                        selected_dimension_ui, DIMENSION_CONFIG, {}
+                        selected_dimension_ui,
+                        DIMENSION_CONFIG,
+                        {},
+                        selected_proposal,
                     )
 
                 drilldown_selection = st.selectbox(

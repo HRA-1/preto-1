@@ -164,6 +164,51 @@ PROPOSAL_DATA_FUNCTION_NAMES: dict[str, str] = {
 
 
 # ==============================================================================
+# 제안별 필터 형식 설정 (L3/L4 동적 생성)
+# ==============================================================================
+
+PROPOSAL_FILTER_FORMATS: dict[str, str] = {
+    # Format A: 전체 차원 옵션 + 부서별/직무별 hierarchical drilldown 지원
+    "basic_proposal": "FORMAT_A",
+    "proposal_01": "FORMAT_A",
+    "proposal_03": "FORMAT_A",
+    "proposal_04": "FORMAT_A",
+    "proposal_06": "FORMAT_A",
+    "proposal_08": "FORMAT_A",
+    "proposal_11": "FORMAT_A",
+    "proposal_12": "FORMAT_A",
+    "proposal_13": "FORMAT_A",
+    "proposal_14": "FORMAT_A",
+    "proposal_16": "FORMAT_A",
+    "proposal_17": "FORMAT_A",
+    "proposal_19": "FORMAT_A",
+    # Format B: 전체 차원 옵션 but hierarchical drilldown 미지원 (L4 항상 "전체")
+    "proposal_05": "FORMAT_B",
+    "proposal_07": "FORMAT_B",
+    "proposal_09": "FORMAT_B",
+    "proposal_18": "FORMAT_B",
+    "proposal_20": "FORMAT_B",
+    # Format C: L3/L4 모두 "전체"만 표시
+    "proposal_02": "FORMAT_C",
+    "proposal_10": "FORMAT_C",
+    "proposal_15": "FORMAT_C",
+}
+
+# 기본 차원 옵션 (플레이스홀더 제외)
+BASE_DIMENSION_OPTIONS = [
+    "부서별",
+    "직무별",
+    "직위별",
+    "성별",
+    "연령대별",
+    "경력구간별",
+    "연봉구간별",
+    "근무지역별",
+    "계약형태별",
+]
+
+
+# ==============================================================================
 # UI 상태 관리
 # ==============================================================================
 
@@ -260,3 +305,27 @@ def should_disable_filters(selected_group: str, selected_proposal: str) -> bool:
     return is_group_placeholder(selected_group) or is_proposal_placeholder(
         selected_proposal
     )
+
+
+def get_dimension_options_for_proposal(proposal: str) -> list[str]:
+    """
+    제안(L2)에 따라 L3 차원 필터 옵션을 반환
+
+    Args:
+        proposal: 제안 ID (e.g., "proposal_01", "basic_proposal")
+
+    Returns:
+        list[str]: L3 차원 옵션 리스트 (플레이스홀더 포함)
+
+    Examples:
+        - FORMAT_A/B: ["필터(구분 선택)", "부서별", "직무별", ...]
+        - FORMAT_C: ["필터(구분 선택)", "전체"]
+    """
+    format_type = PROPOSAL_FILTER_FORMATS.get(proposal, "FORMAT_A")
+
+    if format_type == "FORMAT_C":
+        # C형식: L3는 "전체"만 표시
+        return [FILTER_PLACEHOLDERS["level3_select"], "전체"]
+    else:
+        # A/B형식: 모든 차원 옵션 표시
+        return [FILTER_PLACEHOLDERS["level3_select"]] + BASE_DIMENSION_OPTIONS
