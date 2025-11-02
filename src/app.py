@@ -93,10 +93,7 @@ def get_drilldown_options(
 
     # Format B and C: Always flat, no hierarchical drilldown
     if format_type in ["FORMAT_B", "FORMAT_C"]:
-        return [
-            FILTER_PLACEHOLDERS["level4_all"],
-            FILTER_PLACEHOLDERS["drilldown_all"],
-        ]
+        return [FILTER_PLACEHOLDERS["drilldown_all"]]
 
     # Format A: Support hierarchical drilldown for 부서별/직무별
     if config.get("type") == "hierarchical":
@@ -112,21 +109,16 @@ def get_drilldown_options(
                             and top_col in sub_value.columns
                         ):
                             unique_values = sub_value[top_col].dropna().unique()
-                            return [
-                                FILTER_PLACEHOLDERS["level4_all"],
-                                FILTER_PLACEHOLDERS["drilldown_all"],
-                            ] + sorted(unique_values.tolist())
+                            return [FILTER_PLACEHOLDERS["drilldown_all"]] + sorted(
+                                unique_values.tolist()
+                            )
                 elif isinstance(value, pd.DataFrame) and top_col in value.columns:
                     unique_values = value[top_col].dropna().unique()
-                    return [
-                        FILTER_PLACEHOLDERS["level4_all"],
-                        FILTER_PLACEHOLDERS["drilldown_all"],
-                    ] + sorted(unique_values.tolist())
+                    return [FILTER_PLACEHOLDERS["drilldown_all"]] + sorted(
+                        unique_values.tolist()
+                    )
 
-    return [
-        FILTER_PLACEHOLDERS["level4_all"],
-        FILTER_PLACEHOLDERS["drilldown_all"],
-    ]
+    return [FILTER_PLACEHOLDERS["drilldown_all"]]
 
 
 def normalize_filter_values(dimension_ui_name, drilldown_selection):
