@@ -1,0 +1,46 @@
+# Streamlit 개발 환경 최적화 설정
+# 프로덕션 배포 시에는 이 설정을 조정하거나 제거할 수 있습니다.
+
+[server]
+# 파일 변경 감지 방식 (poll이 일반적으로 더 안정적)
+fileWatcherType = "poll"
+
+# 업로드 파일 크기 제한 (MB)
+maxUploadSize = 200
+
+# 헤더 메시지 숨기기
+enableCORS = false
+enableXsrfProtection = true
+
+[runner]
+# 빠른 재실행 활성화
+fastReruns = true
+
+# Magic commands 비활성화 (약간의 성능 향상)
+magicEnabled = false
+
+# 스크립트 실행 후 자동 재실행 비활성화
+postScriptGC = true
+
+[browser]
+# 사용 통계 수집 비활성화 (개발 환경)
+gatherUsageStats = false
+
+# 서버 주소 (로컬 개발)
+serverAddress = "localhost"
+serverPort = 8501
+
+[client]
+# 에러 상세 정보 표시 (개발 모드)
+showErrorDetails = true
+
+# 개발자 모드 툴바
+toolbarMode = "developer"
+
+[theme]
+# 기본 테마 설정 (선택사항)
+primaryColor = "#FF4B4B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"

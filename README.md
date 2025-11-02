@@ -5,8 +5,8 @@ HR 데이터 분석 및 시각화를 위한 Streamlit 기반 대시보드입니�
 ## 🚀 주요 기능
 
 - **개발 모드**: 빠른 시작을 위한 경량 데이터 (기본값)
-  - 직원 50명, 2024년 이후 데이터
-  - 로딩 시간: ~1-2초 (프로덕션 대비 10-20배 빠름)
+  - 직원 20명, 2024년 7월 이후 데이터
+  - 로딩 시간: ~0.5-1초 (프로덕션 대비 25-50배 빠름)
 
 - **프로덕션 모드**: 전체 데이터 분석
   - 직원 1000명, 2020년 이후 데이터
@@ -43,7 +43,7 @@ docker run --name hra -d -p 8501:8501 -p 8888:8888 -v "$(pwd)":/app -e ENVIRONME
 **자동 설정**:
 - ✅ Streamlit 앱 (포트 8501)
 - ✅ Jupyter Notebook (포트 8888)
-- ✅ 빠른 데이터 로딩 (50명, 2024-현재)
+- ✅ 빠른 데이터 로딩 (20명, 2024년 7월-현재)
 
 #### 🚀 프로덕션 모드 (전체 데이터)
 
@@ -146,7 +146,7 @@ STREAMLIT_DEV_MODE=false streamlit run src/app.py
 
 | 모드 | 직원 수 | 날짜 범위 | 예상 데이터량 | 로딩 시간 | 사용 사례 |
 |------|---------|-----------|--------------|----------|-----------|
-| **개발** | 50명 | 2024-현재 | ~20K 행 | ~1-2초 | 개발, 테스트, 빠른 확인 |
+| **개발** | 20명 | 2024년 7월-현재 | ~5K 행 | ~0.5-1초 | 개발, 테스트, 빠른 확인 |
 | **프로덕션** | 1000명 | 2020-현재 | ~2.2M 행 | ~15초 | 실제 분석, 데모, 배포 |
 
 ## 🔍 확인 방법
@@ -161,7 +161,10 @@ docker logs hra
 ```
 🔍 Detected environment: dev
 🚀 Starting in DEVELOPMENT mode...
-🔧 STREAMLIT_DEV_MODE=true (50 employees, 2024-current data)
+🔧 [DEV MODE] 개발 모드 활성화:
+   - 직원 수: 20명
+   - 날짜 범위: 2024-07-01 ~ 현재
+   - 예상 로딩 속도: 25-50배 향상
 📓 Starting Jupyter Notebook on port 8888...
 🎯 Starting Streamlit app on port 8501...
 ```
@@ -182,9 +185,16 @@ docker logs hra
 
 ```python
 if DEV_MODE:
-    NUM_EMPLOYEES = 50        # 원하는 직원 수로 변경
-    DATE_RANGE_START = "2024-01-01"  # 원하는 시작 날짜로 변경
+    NUM_EMPLOYEES = 20        # 원하는 직원 수로 변경
+    DATE_RANGE_START = "2024-07-01"  # 원하는 시작 날짜로 변경
 ```
+
+### Streamlit 최적화 설정
+
+개발 환경 성능 향상을 위한 설정이 `.streamlit/config.toml`에 포함되어 있습니다:
+- 빠른 재실행 (`fastReruns = true`)
+- 파일 감지 최적화 (`fileWatcherType = "poll"`)
+- 개발자 모드 툴바 활성화
 
 ### 환경변수로 직접 제어
 
