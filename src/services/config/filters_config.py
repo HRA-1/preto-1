@@ -4,6 +4,7 @@
 """
 
 from typing import Any
+from enum import Enum
 
 # ==============================================================================
 # 필터 플레이스홀더 상수
@@ -149,3 +150,81 @@ PROPOSAL_DATA_FUNCTION_NAMES: dict[str, str] = {
     "proposal_19": "prepare_proposal_19_data",
     "proposal_20": "prepare_proposal_20_data",
 }
+
+
+# ==============================================================================
+# UI 상태 관리
+# ==============================================================================
+
+
+class ViewState(Enum):
+    """
+    Main content area의 3가지 UI 상태를 나타냄
+
+    - GROUP_OVERVIEW: 그룹 개요 페이지 (L1=개요, L2=개요)
+    - PROPOSAL_SELECTION: 제안 선택 안내 페이지 (L1≠개요, L2=개요)
+    - DATA_VISUALIZATION: 실제 데이터 시각화 (유효한 제안 선택됨)
+    """
+
+    GROUP_OVERVIEW = "group_overview"
+    PROPOSAL_SELECTION = "proposal_selection"
+    DATA_VISUALIZATION = "data_visualization"
+
+
+# ==============================================================================
+# 필터 플레이스홀더 체크 함수들
+# ==============================================================================
+
+
+def is_group_placeholder(group: str) -> bool:
+    """Level 1 그룹이 플레이스홀더인지 확인"""
+    return group == FILTER_PLACEHOLDERS["level1_default"]
+
+
+def is_proposal_placeholder(proposal: str) -> bool:
+    """Level 2 제안이 플레이스홀더인지 확인"""
+    return proposal in [
+        FILTER_PLACEHOLDERS["level2_overview"],
+        FILTER_PLACEHOLDERS["level2_select"],
+    ]
+
+
+def is_dimension_placeholder(dimension: str) -> bool:
+    """Level 3 구분이 플레이스홀더인지 확인"""
+    return dimension == FILTER_PLACEHOLDERS["level3_select"]
+
+
+def is_drilldown_placeholder(drilldown: str) -> bool:
+    """Level 4 하위구분이 플레이스홀더인지 확인"""
+    return drilldown in [
+        FILTER_PLACEHOLDERS["level4_all"],
+        FILTER_PLACEHOLDERS["drilldown_all"],
+    ]
+
+
+# ==============================================================================
+# 상태 판별 함수
+# ==============================================================================
+
+
+def get_view_state(selected_group: str, selected_proposal: str) -> ViewState:
+    """
+    현재 선택된 필터 조합을 기반으로 UI 상태를 결정
+
+    Args:
+        selected_group: Level 1 그룹 선택값
+        selected_proposal: Level 2 제안 선택값
+
+    Returns:
+        ViewState: 현재 UI 상태
+    """
+    if is_group_placeholder(selected_group) and is_proposal_placeholder(
+        selected_proposal
+    ):
+        return ViewState.GROUP_OVERVIEW
+    elif not is_group_placeholder(selected_group) and is_proposal_placeholder(
+        selected_proposal
+    ):
+        return ViewState.PROPOSAL_SELECTION
+    else:
+        return ViewState.DATA_VISUALIZATION

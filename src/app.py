@@ -11,6 +11,9 @@ from services.config.filters_config import (
     PROPOSAL_GROUPS,
     DIMENSION_CONFIG,
     PROPOSAL_DATA_FUNCTION_NAMES,
+    ViewState,
+    get_view_state,
+    is_drilldown_placeholder,
 )
 from services import data_preparer
 
@@ -67,6 +70,64 @@ def get_drilldown_options(dimension_ui_name, dimension_config, data_bundle):
         FILTER_PLACEHOLDERS["level4_all"],
         FILTER_PLACEHOLDERS["drilldown_all"],
     ]
+
+
+def normalize_filter_values(dimension_ui_name, drilldown_selection):
+    """
+    플레이스홀더를 실제 값으로 변환
+
+    Args:
+        dimension_ui_name: Level 3 구분 선택값
+        drilldown_selection: Level 4 하위구분 선택값
+
+    Returns:
+        tuple: (정규화된 dimension, 정규화된 drilldown)
+    """
+    # Dimension 정규화: 플레이스홀더면 "전체"로 변환
+    final_dimension = (
+        dimension_ui_name
+        if dimension_ui_name != FILTER_PLACEHOLDERS["level3_select"]
+        else FILTER_PLACEHOLDERS["drilldown_all"]
+    )
+
+    # Drilldown 정규화: 플레이스홀더면 "전체"로 변환
+    final_drilldown = (
+        drilldown_selection
+        if not is_drilldown_placeholder(drilldown_selection)
+        else FILTER_PLACEHOLDERS["drilldown_all"]
+    )
+
+    return final_dimension, final_drilldown
+
+
+def build_title(proposal_name, dimension_ui_name, drilldown_selection):
+    """
+    현재 필터 조합을 기반으로 타이틀 문자열 생성
+
+    Args:
+        proposal_name: 제안 ID
+        dimension_ui_name: Level 3 구분 선택값
+        drilldown_selection: Level 4 하위구분 선택값
+
+    Returns:
+        str: 생성된 타이틀 문자열
+    """
+    # 기본 타이틀: 제안 표시명
+    proposal_display = PROPOSAL_TITLES.get(proposal_name, proposal_name)
+    title = f"{proposal_display}"
+
+    # Dimension이 유효하면 추가
+    if dimension_ui_name not in [
+        FILTER_PLACEHOLDERS["drilldown_all"],
+        FILTER_PLACEHOLDERS["level3_select"],
+    ]:
+        title += f" - {dimension_ui_name}"
+
+    # Drilldown이 유효하면 추가
+    if not is_drilldown_placeholder(drilldown_selection):
+        title += f" ({drilldown_selection})"
+
+    return title
 
 
 @st.cache_data
@@ -186,12 +247,111 @@ def load_proposal_view(
         return None, None
 
 
+def render_group_overview():
+    """
+    ViewState.GROUP_OVERVIEW 상태의 렌더링
+    그룹 개요 페이지 표시 (L1=개요, L2=개요)
+    """
+    st.title("해당 그룹에 대한 설명")
+    st.markdown(
+        """
+        ex)
+
+        ## 그룹 1: 조직 현황 및 인력 변동
+
+        - 이 그룹은 조직의 가장 기본적인 건강 상태(Health Check)를 진단합니다. "얼마나 많은 인력이, 얼마나 잘 유지되고 있는가?"라는 질문에 답하며, 인력의 유입(Flow-in)과 유출(Flow-out)을 집중적으로 추적합니다.
+        - 포함 그래프
+            - 기본 인원 변동 현황 (전체 현황)
+            - 연간 퇴사율 (핵심 유출 지표)
+            - 입사 연도별 잔존율 (시점별 유출 지표)
+            - 직무별 인력 유지 현황 (직무별 유출 지표)
+            - 퇴사 예측 선행 지표 (유출 선행 지표)
+        """
+    )
+
+
+def render_proposal_selection():
+    """
+    ViewState.PROPOSAL_SELECTION 상태의 렌더링
+    제안 선택 안내 페이지 표시 (L1≠개요, L2=개요)
+    """
+    st.title("해당 제안에 대한 설명")
+    st.markdown(
+        """
+        기존 내용 유지
+        단, '그래프 1: Division/Office별 성장 속도 비교'와 같은 제목은 삭제
+        글자 수도 줄일 수 있다면 줄이기
+        글씨 크기는 이전 페이지 포함해서 키울 수 있으면 키우기
+        """
+    )
+
+
+def render_data_visualization(
+    proposal_name, dimension_ui_name, drilldown_selection, data_bundle, order_map
+):
+    """
+    ViewState.DATA_VISUALIZATION 상태의 렌더링
+    실제 데이터 시각화 표시 (유효한 제안 선택됨)
+
+    Args:
+        proposal_name: 제안 ID
+        dimension_ui_name: Level 3 구분 선택값 (정규화된 값)
+        drilldown_selection: Level 4 하위구분 선택값 (정규화된 값)
+        data_bundle: 데이터 번들
+        order_map: 정렬 맵
+    """
+    # 타이틀 생성 및 표시
+    title = build_title(proposal_name, dimension_ui_name, drilldown_selection)
+    st.title(title)
+
+    # Load and display the proposal view
+    fig, aggregate_df = load_proposal_view(
+        proposal_name=proposal_name,
+        dimension_ui_name=dimension_ui_name,
+        drilldown_selection=drilldown_selection,
+        dimension_config=DIMENSION_CONFIG,
+        data_bundle=data_bundle,
+        order_map=order_map,
+    )
+
+    # Display the figure
+    if fig is not None:
+        if isinstance(fig, plt.Figure):
+            st.pyplot(fig)
+        elif isinstance(fig, go.Figure):
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Display aggregate_df if available
+        if aggregate_df is not None and not aggregate_df.empty:
+            st.subheader("데이터 테이블")
+            st.dataframe(aggregate_df, use_container_width=True)
+    elif proposal_name == "basic_proposal":
+        # basic_proposal_view handles its own display with tabs
+        # The view function already displayed content, so we don't need to do anything
+        pass
+    else:
+        st.info("선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다.")
+
+
 def main():
     """
     Main function to run the Streamlit app with 4-filter structure.
+
+    필터 레벨:
+    - Level 1 (Sidebar): 그룹 살펴보기
+    - Level 2 (Sidebar): 제안 살펴보기
+    - Level 3 (Main): 구분
+    - Level 4 (Main): 하위구분
+
+    UI 상태:
+    - GROUP_OVERVIEW: L1=개요, L2=개요 → 그룹 개요 페이지
+    - PROPOSAL_SELECTION: L1≠개요, L2=개요 → 제안 선택 안내 페이지
+    - DATA_VISUALIZATION: 유효한 제안 선택 → 실제 데이터 시각화
     """
     with streamlit_analytics.track():
-        # SIDEBAR - LEFT FILTERS
+        # ================================================================
+        # SIDEBAR - Level 1 & 2 Filters
+        # ================================================================
         st.sidebar.title("HR Analytics\nGraph Collection")
         st.sidebar.markdown(
             """
@@ -199,7 +359,7 @@ def main():
             조직의 숨겨진 리스크와 기회를 객관적 지표로 증명하고 선제적으로 인재관리를 시작하세요.
             """
         )
-        st.sidebar.markdown("---")  # Separator line
+        st.sidebar.markdown("---")
 
         # LEFT FILTER 1: 그룹 살펴보기 (Group selection)
         selected_group = st.sidebar.selectbox(
@@ -208,20 +368,21 @@ def main():
 
         # LEFT FILTER 2: 제안 살펴보기 (Proposal selection within the group)
         if selected_group == FILTER_PLACEHOLDERS["level1_default"]:
-            # Show placeholder for proposal selection
+            # 그룹이 "개요"인 경우: 제안도 "개요"로 고정
             selected_proposal = st.sidebar.selectbox(
                 "제안 살펴보기", options=[FILTER_PLACEHOLDERS["level2_overview"]], index=0
             )
         elif selected_group and selected_group != FILTER_PLACEHOLDERS["level1_default"]:
+            # 유효한 그룹 선택 시: "개요" + 그룹의 제안 리스트
             proposals_in_group = PROPOSAL_GROUPS[selected_group]
             if proposals_in_group:
-                proposal_options = [FILTER_PLACEHOLDERS["level2_select"]] + proposals_in_group
+                proposal_options = (
+                    [FILTER_PLACEHOLDERS["level2_select"]] + proposals_in_group
+                )
                 selected_proposal = st.sidebar.selectbox(
                     "제안 살펴보기",
                     options=proposal_options,
-                    format_func=lambda x: (
-                        x if x.startswith("필터") else PROPOSAL_TITLES.get(x, x)
-                    ),
+                    format_func=lambda x: PROPOSAL_TITLES.get(x, x),
                     index=0,
                 )
             else:
@@ -230,12 +391,13 @@ def main():
             st.error("No group selected")
             return
 
-        # MAIN AREA - TOP FILTERS
-        # Add custom CSS for better filter appearance
+        # ================================================================
+        # MAIN AREA - Level 3 & 4 Filters
+        # ================================================================
+        # Custom CSS for filter appearance
         st.markdown(
             """
         <style>
-        /* Style for top filter area */
         .top-filters {
             background-color: #f8f9fa;
             padding: 1rem;
@@ -243,11 +405,9 @@ def main():
             margin-bottom: 1.5rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        /* Reduce padding for selectbox in columns */
         .stSelectbox {
             margin-bottom: 0.5rem;
         }
-        /* Style the main content area */
         .main-content {
             padding-top: 1rem;
         }
@@ -256,7 +416,7 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # Create container for top filters
+        # Top filters container
         with st.container():
             col1, col2 = st.columns([1, 1])
 
@@ -269,16 +429,13 @@ def main():
 
             with col2:
                 # TOP FILTER 4: 하위구분 (Drilldown selection)
-                # Only get data bundle when necessary for drilldown options
+                # hierarchical 차원이고 유효한 제안일 때만 데이터 로드
+                view_state = get_view_state(selected_group, selected_proposal)
                 if (
-                    selected_proposal
-                    and not selected_proposal.startswith("필터")
-                    and selected_dimension_ui
-                    and not selected_dimension_ui.startswith("필터")
+                    view_state == ViewState.DATA_VISUALIZATION
                     and DIMENSION_CONFIG.get(selected_dimension_ui, {}).get("type")
                     == "hierarchical"
                 ):
-                    # Only load data for hierarchical dimensions that need drilldown options
                     temp_data_bundle = get_data_bundle_for_proposal(
                         selected_proposal, selected_dimension_ui
                     )
@@ -297,117 +454,45 @@ def main():
                     key="drilldown_filter",
                 )
 
-        # Visual separator between filters and content
+        # Visual separator
         st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
 
-        # Main content area
-        if selected_proposal and selected_dimension_ui:
-            # Check different states and display appropriate content
-            if (
-                selected_group == FILTER_PLACEHOLDERS["level1_default"]
-                and selected_proposal == FILTER_PLACEHOLDERS["level2_overview"]
-            ):
-                # Initial state - show overview
-                st.title("해당 그룹에 대한 설명")
-                st.markdown(
-                    """
-                ex)
+        # ================================================================
+        # MAIN CONTENT - State-based rendering
+        # ================================================================
+        # Determine current view state
+        view_state = get_view_state(selected_group, selected_proposal)
 
-                ## 그룹 1: 조직 현황 및 인력 변동
+        # Render based on state
+        if view_state == ViewState.GROUP_OVERVIEW:
+            # 상태 1: 그룹 개요 페이지
+            render_group_overview()
 
-                - 이 그룹은 조직의 가장 기본적인 건강 상태(Health Check)를 진단합니다. "얼마나 많은 인력이, 얼마나 잘 유지되고 있는가?"라는 질문에 답하며, 인력의 유입(Flow-in)과 유출(Flow-out)을 집중적으로 추적합니다.
-                - 포함 그래프
-                    - 기본 인원 변동 현황 (전체 현황)
-                    - 연간 퇴사율 (핵심 유출 지표)
-                    - 입사 연도별 잔존율 (시점별 유출 지표)
-                    - 직무별 인력 유지 현황 (직무별 유출 지표)
-                    - 퇴사 예측 선행 지표 (유출 선행 지표)
-                """
+        elif view_state == ViewState.PROPOSAL_SELECTION:
+            # 상태 2: 제안 선택 안내 페이지
+            render_proposal_selection()
+
+        elif view_state == ViewState.DATA_VISUALIZATION:
+            # 상태 3: 실제 데이터 시각화
+            # 필터 값 정규화
+            final_dimension, final_drilldown = normalize_filter_values(
+                selected_dimension_ui, drilldown_selection
+            )
+
+            # 데이터 로드 및 렌더링
+            with st.spinner("데이터를 불러오는 중..."):
+                data_bundle = get_data_bundle_for_proposal(
+                    selected_proposal, final_dimension
                 )
-            elif (
-                selected_group != FILTER_PLACEHOLDERS["level1_default"]
-                and selected_proposal == FILTER_PLACEHOLDERS["level2_select"]
-            ):
-                # Group selected but no proposal selected
-                st.title("해당 제안에 대한 설명")
-                st.markdown(
-                    f"""
-                기존 내용 유지
-                단, '그래프 1: Division/Office별 성장 속도 비교'와 같은 제목은 삭제
-                글자 수도 줄일 수 있다면 줄이기
-                글씨 크기는 이전 페이지 포함해서 키울 수 있으면 키우기
-                """
+                order_map = data_bundle.get("order_map", {})
+
+                render_data_visualization(
+                    proposal_name=selected_proposal,
+                    dimension_ui_name=final_dimension,
+                    drilldown_selection=final_drilldown,
+                    data_bundle=data_bundle,
+                    order_map=order_map,
                 )
-            elif selected_proposal.startswith("필터"):
-                # Any other filter state
-                st.title("그래프 + 요약 테이블")
-                st.info("필터를 선택하여 데이터를 확인하세요.")
-            else:
-                # Valid proposal and dimension selected - show actual data
-                proposal_display = PROPOSAL_TITLES.get(
-                    selected_proposal, selected_proposal
-                )
-                title = f"{proposal_display}"
-                if selected_dimension_ui not in [
-                    FILTER_PLACEHOLDERS["drilldown_all"],
-                    FILTER_PLACEHOLDERS["level3_select"],
-                ]:
-                    title += f" - {selected_dimension_ui}"
-                if drilldown_selection not in [
-                    FILTER_PLACEHOLDERS["drilldown_all"],
-                    FILTER_PLACEHOLDERS["level4_all"],
-                ]:
-                    title += f" ({drilldown_selection})"
-                st.title(title)
-
-                # Load and display the proposal view
-                # Only load data bundle when actually displaying content
-                final_dimension = (
-                    selected_dimension_ui
-                    if selected_dimension_ui != FILTER_PLACEHOLDERS["level3_select"]
-                    else FILTER_PLACEHOLDERS["drilldown_all"]
-                )
-                final_drilldown = (
-                    drilldown_selection
-                    if drilldown_selection not in [FILTER_PLACEHOLDERS["level4_all"]]
-                    else FILTER_PLACEHOLDERS["drilldown_all"]
-                )
-
-                with st.spinner("데이터를 불러오는 중..."):
-                    # Get data bundle only when needed for actual display
-                    data_bundle = get_data_bundle_for_proposal(
-                        selected_proposal, final_dimension
-                    )
-                    order_map = data_bundle.get("order_map", {})
-
-                    fig, aggregate_df = load_proposal_view(
-                        proposal_name=selected_proposal,
-                        dimension_ui_name=final_dimension,
-                        drilldown_selection=final_drilldown,
-                        dimension_config=DIMENSION_CONFIG,
-                        data_bundle=data_bundle,
-                        order_map=order_map,
-                    )
-
-                    # Display the figure
-                    if fig is not None:
-                        if isinstance(fig, plt.Figure):
-                            st.pyplot(fig)
-                        elif isinstance(fig, go.Figure):
-                            st.plotly_chart(fig, use_container_width=True)
-
-                        # Display aggregate_df if available
-                        if aggregate_df is not None and not aggregate_df.empty:
-                            st.subheader("데이터 테이블")
-                            st.dataframe(aggregate_df, use_container_width=True)
-                    elif selected_proposal == "basic_proposal":
-                        # basic_proposal_view handles its own display with tabs
-                        # The view function already displayed content, so we don't need to do anything
-                        pass
-                    else:
-                        st.info(
-                            "선택하신 조건에 해당하는 데이터가 없거나 시각화를 생성할 수 없습니다."
-                        )
 
 
 if __name__ == "__main__":
