@@ -179,14 +179,61 @@ docker logs hra
 
 ## ⚙️ 고급 설정
 
-### 데이터 크기 커스터마이징
+### 데이터 크기 동적 조절 (환경변수)
 
-개발 모드의 데이터 크기를 조정하려면 `src/services/config/dev_config.py` 파일을 수정하세요:
+**추천 방법**: 환경변수를 사용하여 코드 수정 없이 데이터 크기를 조절할 수 있습니다.
+
+#### 로컬 실행 예시
+
+```bash
+# 1. 최소 크기 (기본값, 가장 빠름) - 20명, 반년치
+streamlit run src/app.py
+
+# 2. 중간 크기 - 100명, 2년치
+STREAMLIT_NUM_EMPLOYEES=100 STREAMLIT_DATE_START=2023-01-01 streamlit run src/app.py
+
+# 3. 중대형 - 500명, 3년치
+STREAMLIT_NUM_EMPLOYEES=500 STREAMLIT_DATE_START=2021-01-01 streamlit run src/app.py
+
+# 4. 대용량 테스트 (프로덕션 크기) - 1000명, 전체 기간
+STREAMLIT_NUM_EMPLOYEES=1000 STREAMLIT_DATE_START=2020-01-01 streamlit run src/app.py
+```
+
+#### Docker 실행 예시
+
+```bash
+# 중간 크기로 Docker 실행
+docker run --name hra -d \
+  -e STREAMLIT_NUM_EMPLOYEES=100 \
+  -e STREAMLIT_DATE_START=2023-01-01 \
+  -p 8501:8501 -p 8888:8888 \
+  -v "$(pwd)":/app preto-1
+
+# 대용량으로 Docker 실행
+docker run --name hra -d \
+  -e STREAMLIT_NUM_EMPLOYEES=1000 \
+  -e STREAMLIT_DATE_START=2020-01-01 \
+  -p 8501:8501 -p 8888:8888 \
+  -v "$(pwd)":/app preto-1
+```
+
+#### 데이터 크기별 성능 비교
+
+| 설정 | 직원 수 | 날짜 범위 | 예상 데이터량 | 로딩 시간 | 사용 사례 |
+|------|---------|-----------|--------------|----------|-----------|
+| **최소** (기본) | 20명 | 2024-07-01~ | ~5K 행 | ~0.5초 | 빠른 개발, UI 테스트 |
+| **중간** | 100명 | 2023-01-01~ | ~80K 행 | ~2-3초 | 기능 검증, 중간 데이터 테스트 |
+| **중대형** | 500명 | 2021-01-01~ | ~900K 행 | ~7-8초 | 성능 테스트, 안정성 확인 |
+| **대용량** | 1000명 | 2020-01-01~ | ~2.2M 행 | ~15초 | 프로덕션 시뮬레이션 |
+
+### 데이터 크기 커스터마이징 (파일 수정)
+
+직접 `src/services/config/dev_config.py` 파일을 수정하여 기본값을 변경할 수도 있습니다:
 
 ```python
 if DEV_MODE:
-    NUM_EMPLOYEES = 20        # 원하는 직원 수로 변경
-    DATE_RANGE_START = "2024-07-01"  # 원하는 시작 날짜로 변경
+    NUM_EMPLOYEES = int(os.getenv("STREAMLIT_NUM_EMPLOYEES", "20"))  # 기본값 변경
+    DATE_RANGE_START = os.getenv("STREAMLIT_DATE_START", "2024-07-01")  # 기본값 변경
 ```
 
 ### Streamlit 최적화 설정
@@ -196,16 +243,16 @@ if DEV_MODE:
 - 파일 감지 최적화 (`fileWatcherType = "poll"`)
 - 개발자 모드 툴바 활성화
 
-### 환경변수로 직접 제어
+### 사용 가능한 환경변수 목록
 
-```sh
-# 컨테이너 실행 시 직접 지정
-docker run --name hra -d \
-  -p 8501:8501 -p 8888:8888 \
-  -e STREAMLIT_DEV_MODE=true \
-  -v "$(pwd)":/app \
-  preto-1
-```
+| 환경변수 | 기본값 | 설명 |
+|---------|-------|------|
+| `STREAMLIT_DEV_MODE` | `true` | 개발 모드 활성화 (true/false) |
+| `STREAMLIT_NUM_EMPLOYEES` | `20` | DEV 모드에서 생성할 직원 수 |
+| `STREAMLIT_DATE_START` | `2024-07-01` | DEV 모드에서 데이터 시작 날짜 |
+| `ENVIRONMENT` | `dev` | Docker 컨테이너 모드 (dev/prod) |
+
+**참고**: 프로덕션 모드(`STREAMLIT_DEV_MODE=false`)에서는 `NUM_EMPLOYEES`와 `DATE_START` 환경변수가 무시되고 항상 전체 데이터(1000명, 2020-01-01~)를 생성합니다.
 
 ## 📚 추가 문서
 

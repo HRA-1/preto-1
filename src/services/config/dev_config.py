@@ -22,13 +22,19 @@ DEV_MODE = os.getenv("STREAMLIT_DEV_MODE", "true").lower() in ("true", "1", "yes
 
 if DEV_MODE:
     # 개발 모드: 빠른 로딩을 위해 데이터 크기 축소
-    NUM_EMPLOYEES = 20  # 1000 → 20 (50배 축소)
-    DATE_RANGE_START = "2024-07-01"  # 2020 → 2024년 7월 (반년간 데이터)
+    # 환경변수로 오버라이드 가능
+    NUM_EMPLOYEES = int(os.getenv("STREAMLIT_NUM_EMPLOYEES", "20"))
+    DATE_RANGE_START = os.getenv("STREAMLIT_DATE_START", "2024-07-01")
 
     print("🔧 [DEV MODE] 개발 모드 활성화:")
     print(f"   - 직원 수: {NUM_EMPLOYEES}명")
     print(f"   - 날짜 범위: {DATE_RANGE_START} ~ 현재")
-    print(f"   - 예상 로딩 속도: 25-50배 향상")
+    if NUM_EMPLOYEES == 20 and DATE_RANGE_START == "2024-07-01":
+        print(f"   - 예상 로딩 속도: 25-50배 향상 (최소 데이터)")
+    elif NUM_EMPLOYEES <= 100:
+        print(f"   - 예상 로딩 속도: 10-20배 향상 (중간 데이터)")
+    else:
+        print(f"   - 예상 로딩 속도: 프로덕션 수준 (대용량 데이터)")
 else:
     # 프로덕션 모드: 전체 데이터 생성
     NUM_EMPLOYEES = 1000
