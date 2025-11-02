@@ -38,8 +38,14 @@ def create_figure_and_df(data_bundle, dimension_ui_name, drilldown_selection, di
         # 최상위 뷰
         plot_df = analysis_df
         xaxis_col = config.get('top', config.get('col'))
-        xaxis_order = order_map.get(xaxis_col, sorted(plot_df[xaxis_col].unique()))
-        title_text = f"{dimension_ui_name} 구분에 대한 직위별 지각률"
+
+        # "전체" 필터인 경우 (xaxis_col is None)
+        if xaxis_col is None:
+            xaxis_order = []
+            title_text = "전체 직위별 지각률"
+        else:
+            xaxis_order = order_map.get(xaxis_col, sorted(plot_df[xaxis_col].unique()))
+            title_text = f"{dimension_ui_name} 구분에 대한 직위별 지각률"
 
     if plot_df.empty:
         fig = go.Figure().update_layout(title_text=f"'{drilldown_selection}'에 해당하는 데이터가 없습니다.")
