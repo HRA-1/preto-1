@@ -16,6 +16,7 @@ from services.config.filters_config import (
     ViewState,
     get_view_state,
     is_drilldown_placeholder,
+    is_dimension_placeholder,
     is_proposal_placeholder,
     should_disable_filters,
     get_dimension_options_for_proposal,
@@ -507,17 +508,24 @@ def main():
                         selected_proposal,
                     )
 
+                # L4 비활성화 조건: L1/L2 미선택 OR L3가 플레이스홀더("개요")
+                drilldown_disabled = filters_disabled or is_dimension_placeholder(
+                    selected_dimension_ui
+                )
+
                 drilldown_selection = st.selectbox(
                     "하위구분",
                     options=drilldown_options,
                     index=0,
                     key="drilldown_filter",
-                    disabled=filters_disabled,  # L1, L2가 모두 선택되어야 활성화
+                    disabled=drilldown_disabled,
                 )
 
         # 필터 비활성화 시 사용자에게 안내 메시지
         if filters_disabled:
             st.caption("💡 그룹과 제안을 선택하면 구분 및 하위구분 필터를 사용할 수 있습니다.")
+        elif is_dimension_placeholder(selected_dimension_ui):
+            st.caption("💡 구분을 선택하면 하위구분 필터를 사용할 수 있습니다.")
 
         # Visual separator
         st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
