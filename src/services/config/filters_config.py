@@ -12,10 +12,10 @@ from enum import Enum
 
 FILTER_PLACEHOLDERS = {
     "level1_default": "개요",
-    "level2_overview": "필터(개요)",
-    "level2_select": "필터(제안 선택)",
-    "level3_select": "필터(구분 선택)",
-    "level4_all": "필터(전체)",
+    "level2_overview": "개요",
+    "level2_select": "개요",
+    "level3_select": "개요",
+    "level4_all": "전체",
     "drilldown_all": "전체",
 }
 
@@ -94,6 +94,17 @@ PROPOSAL_GROUPS: dict[str, list[str]] = {
         "proposal_18",
         "proposal_20",
     ],
+}
+
+# ==============================================================================
+# 그룹명 → 개요 파일명 매핑
+# ==============================================================================
+
+GROUP_OVERVIEW_FILES: dict[str, str] = {
+    "조직 현황 및 인력 변동": "group_조직현황및인력변동.md",
+    "성장 및 경력 개발": "group_성장및경력개발.md",
+    "인력 구성 및 역량": "group_인력구성및역량.md",
+    "근무 문화 및 워라밸": "group_근무문화및워라밸.md",
 }
 
 

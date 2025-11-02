@@ -11,6 +11,7 @@ from services.config.filters_config import (
     PROPOSAL_GROUPS,
     DIMENSION_CONFIG,
     PROPOSAL_DATA_FUNCTION_NAMES,
+    GROUP_OVERVIEW_FILES,
     ViewState,
     get_view_state,
     is_drilldown_placeholder,
@@ -49,7 +50,9 @@ def load_markdown_content(filename):
             return f.read()
     except FileNotFoundError:
         st.warning(f"개요 파일을 찾을 수 없습니다: {filename}")
-        return f"# 콘텐츠를 불러올 수 없습니다\n\n`{file_path}` 파일이 존재하지 않습니다."
+        return (
+            f"# 콘텐츠를 불러올 수 없습니다\n\n`{file_path}` 파일이 존재하지 않습니다."
+        )
     except Exception as e:
         st.error(f"파일 로드 중 오류 발생: {e}")
         return f"# 오류\n\n파일을 읽는 중 오류가 발생했습니다."
@@ -165,7 +168,9 @@ def get_data_bundle_for_proposal(proposal_name: str, dimension_ui_name: str = "�
 
     # Get data preparation function from config
     function_name = PROPOSAL_DATA_FUNCTION_NAMES.get(proposal_name)
-    prepare_func = getattr(data_preparer, function_name, None) if function_name else None
+    prepare_func = (
+        getattr(data_preparer, function_name, None) if function_name else None
+    )
     if prepare_func:
         # Call the preparation function with default global filters
         with st.spinner(f"'{proposal_name}' 데이터를 불러오는 중..."):
@@ -279,20 +284,18 @@ def render_group_overview():
     st.markdown(content)
 
 
-def render_proposal_selection():
+def render_proposal_selection(selected_group):
     """
     ViewState.PROPOSAL_SELECTION 상태의 렌더링
     제안 선택 안내 페이지 표시 (L1≠개요, L2=개요)
+
+    Args:
+        selected_group: 선택된 그룹명
     """
-    st.title("해당 제안에 대한 설명")
-    st.markdown(
-        """
-        기존 내용 유지
-        단, '그래프 1: Division/Office별 성장 속도 비교'와 같은 제목은 삭제
-        글자 수도 줄일 수 있다면 줄이기
-        글씨 크기는 이전 페이지 포함해서 키울 수 있으면 키우기
-        """
-    )
+    # 그룹별 개요 파일명 가져오기
+    filename = GROUP_OVERVIEW_FILES.get(selected_group, "proposal_selection.md")
+    content = load_markdown_content(filename)
+    st.markdown(content)
 
 
 def render_data_visualization(
@@ -379,15 +382,17 @@ def main():
         if selected_group == FILTER_PLACEHOLDERS["level1_default"]:
             # 그룹이 "개요"인 경우: 제안도 "개요"로 고정
             selected_proposal = st.sidebar.selectbox(
-                "제안 살펴보기", options=[FILTER_PLACEHOLDERS["level2_overview"]], index=0
+                "제안 살펴보기",
+                options=[FILTER_PLACEHOLDERS["level2_overview"]],
+                index=0,
             )
         elif selected_group and selected_group != FILTER_PLACEHOLDERS["level1_default"]:
             # 유효한 그룹 선택 시: "개요" + 그룹의 제안 리스트
             proposals_in_group = PROPOSAL_GROUPS[selected_group]
             if proposals_in_group:
-                proposal_options = (
-                    [FILTER_PLACEHOLDERS["level2_select"]] + proposals_in_group
-                )
+                proposal_options = [
+                    FILTER_PLACEHOLDERS["level2_select"]
+                ] + proposals_in_group
                 selected_proposal = st.sidebar.selectbox(
                     "제안 살펴보기",
                     options=proposal_options,
@@ -479,7 +484,7 @@ def main():
 
         elif view_state == ViewState.PROPOSAL_SELECTION:
             # 상태 2: 제안 선택 안내 페이지
-            render_proposal_selection()
+            render_proposal_selection(selected_group)
 
         elif view_state == ViewState.DATA_VISUALIZATION:
             # 상태 3: 실제 데이터 시각화
