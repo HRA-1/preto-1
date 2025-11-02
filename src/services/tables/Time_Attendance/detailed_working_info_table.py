@@ -13,6 +13,7 @@ from itertools import product
 
 # --- 1. 사전 준비 ---
 # 다른 모듈에서 생성된 데이터프레임 및 헬퍼 데이터/함수를 임포트
+from services.tables.common import START_DATE, END_DATE
 from services.tables.HR_Core.basic_info_table import emp_df
 from services.tables.HR_Core.department_table import department_df, parent_map_dept, dept_level_map, dept_name_map
 from services.tables.HR_Core.department_info_table import department_info_df
@@ -24,7 +25,7 @@ from services.helpers.utils import find_parents
 random.seed(42)
 np.random.seed(42)
 today_date_obj = datetime.datetime.now().date()
-start_date_range = date(2020, 1, 1)
+start_date_range = START_DATE  # 개발 모드: 2024-01-01, 프로덕션: 2020-01-01
 date_range_series = pd.to_datetime(pd.date_range(start=start_date_range, end=today_date_obj, freq='D'))
 today_ts = pd.to_datetime(today_date_obj)
 

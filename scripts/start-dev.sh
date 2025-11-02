@@ -10,7 +10,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Set the PYTHONPATH to include the src directory
 export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}/src"
 
+# Enable development mode for faster data loading
+export STREAMLIT_DEV_MODE=true
+
 echo "🚀 Starting in DEVELOPMENT mode..."
+echo "🔧 STREAMLIT_DEV_MODE=true (50 employees, 2024-current data)"
 
 # Sync markdown files before starting services
 echo "🔄 Syncing markdown files..."

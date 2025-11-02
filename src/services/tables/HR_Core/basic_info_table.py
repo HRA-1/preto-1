@@ -10,6 +10,7 @@ import datetime
 from datetime import date, timedelta
 from faker import Faker
 import random
+from services.tables.common import TOTAL_EMPLOYEES
 
 # ==============================================================================
 # --- 10. BASIC INFO TABLE (기본정보) ---
@@ -22,7 +23,7 @@ Faker.seed(42)
 random.seed(42)
 np.random.seed(42)
 
-num_employees = 1000
+num_employees = TOTAL_EMPLOYEES  # 개발 모드: 50명, 프로덕션: 1000명
 today = datetime.datetime.now().date()
 today_ts = pd.to_datetime(today)
 

@@ -4,6 +4,10 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Set default to development mode (faster startup for development)
+# Override with STREAMLIT_DEV_MODE=false for production
+ENV STREAMLIT_DEV_MODE=true
+
 # ps -ef 명령어 사용을 위한 의존성 설치
 RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
 

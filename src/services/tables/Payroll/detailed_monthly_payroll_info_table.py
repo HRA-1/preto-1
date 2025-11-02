@@ -13,6 +13,7 @@ from itertools import product
 
 # --- 1. 사전 준비 ---
 # 다른 모듈에서 생성된 데이터프레임을 임포트
+from services.tables.common import START_DATE
 from services.tables.HR_Core.basic_info_table import emp_df
 from services.tables.HR_Core.salary_contract_info_table import salary_contract_info_df
 from services.tables.Time_Attendance.daily_working_info_table import daily_work_info_df
@@ -35,7 +36,8 @@ item_id_ps = payroll_item_df[payroll_item_df['PAYROLL_ITEM_NAME'] == '기타성�
 item_cat_map = payroll_item_df.set_index('PAYROLL_ITEM_ID')['PAYROLL_ITEM_CATEGORY'].to_dict()
 
 # --- 3. 스캐폴드 생성 및 연봉 정보 연결 ---
-min_hire_date = emp_df['IN_DATE'].min()
+# 개발 모드: 2024-01-01부터, 프로덕션: 2020-01-01부터
+min_hire_date = pd.to_datetime(max(emp_df['IN_DATE'].min(), pd.to_datetime(START_DATE)))
 payroll_end_date = today.replace(day=1)
 all_periods = pd.date_range(start=min_hire_date, end=payroll_end_date, freq='MS')
 emp_ids = emp_df['EMP_ID'].unique()
