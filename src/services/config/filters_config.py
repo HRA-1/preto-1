@@ -14,7 +14,6 @@ FILTER_PLACEHOLDERS = {
     "level1_default": "개요",
     "level2_overview": "개요",
     "level2_select": "개요",
-    "level3_select": "개요",
     "level4_all": "전체",
     "drilldown_all": "전체",
 }
@@ -113,7 +112,7 @@ GROUP_OVERVIEW_FILES: dict[str, str] = {
 # ==============================================================================
 
 DIMENSION_CONFIG: dict[str, dict[str, Any]] = {
-    "필터(구분 선택)": {"type": "single", "col": None},  # Placeholder
+    "개요": {"type": "single", "col": None},  # Show proposal overview
     "전체": {"type": "single", "col": None},
     "부서별": {
         "type": "hierarchical",
@@ -245,11 +244,6 @@ def is_proposal_placeholder(proposal: str) -> bool:
     ]
 
 
-def is_dimension_placeholder(dimension: str) -> bool:
-    """Level 3 구분이 플레이스홀더인지 확인"""
-    return dimension == FILTER_PLACEHOLDERS["level3_select"]
-
-
 def is_drilldown_placeholder(drilldown: str) -> bool:
     """Level 4 하위구분이 플레이스홀더인지 확인"""
     return drilldown in [
@@ -315,17 +309,17 @@ def get_dimension_options_for_proposal(proposal: str) -> list[str]:
         proposal: 제안 ID (e.g., "proposal_01", "basic_proposal")
 
     Returns:
-        list[str]: L3 차원 옵션 리스트 (플레이스홀더 포함)
+        list[str]: L3 차원 옵션 리스트
 
     Examples:
-        - FORMAT_A/B: ["필터(구분 선택)", "부서별", "직무별", ...]
-        - FORMAT_C: ["필터(구분 선택)", "전체"]
+        - FORMAT_A/B: ["개요", "전체", "부서별", "직무별", ...]
+        - FORMAT_C: ["개요", "전체"]
     """
     format_type = PROPOSAL_FILTER_FORMATS.get(proposal, "FORMAT_A")
 
     if format_type == "FORMAT_C":
-        # C형식: L3는 "전체"만 표시
-        return [FILTER_PLACEHOLDERS["level3_select"], "전체"]
+        # C형식: L3는 "개요", "전체"만 표시
+        return ["개요", "전체"]
     else:
-        # A/B형식: 모든 차원 옵션 표시
-        return [FILTER_PLACEHOLDERS["level3_select"]] + BASE_DIMENSION_OPTIONS
+        # A/B형식: 모든 차원 옵션 표시 ("개요", "전체" 포함)
+        return ["개요", "전체"] + BASE_DIMENSION_OPTIONS

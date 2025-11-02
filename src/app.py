@@ -16,7 +16,6 @@ from services.config.filters_config import (
     ViewState,
     get_view_state,
     is_drilldown_placeholder,
-    is_dimension_placeholder,
     is_proposal_placeholder,
     should_disable_filters,
     get_dimension_options_for_proposal,
@@ -37,6 +36,7 @@ st.set_page_config(
 
 PROPOSAL_VIEWS_DIR = "src/services/proposal_views"
 OVERVIEWS_DIR = "src/content/overviews"
+PROPOSAL_OVERVIEWS_DIR = "src/content/overviews/groups"
 
 
 def load_markdown_content(filename):
@@ -78,8 +78,8 @@ def get_drilldown_options(
     Returns:
         list[str]: L4 drilldown options
     """
-    # If dimension is the placeholder, return placeholder for drilldown too
-    if dimension_ui_name == FILTER_PLACEHOLDERS["level3_select"]:
+    # If dimension is "개요", return placeholder for drilldown
+    if dimension_ui_name == "개요":
         return [FILTER_PLACEHOLDERS["level4_all"]]
 
     config = dimension_config.get(dimension_ui_name, {})
@@ -132,12 +132,8 @@ def normalize_filter_values(dimension_ui_name, drilldown_selection):
     Returns:
         tuple: (정규화된 dimension, 정규화된 drilldown)
     """
-    # Dimension 정규화: 플레이스홀더면 "전체"로 변환
-    final_dimension = (
-        dimension_ui_name
-        if dimension_ui_name != FILTER_PLACEHOLDERS["level3_select"]
-        else FILTER_PLACEHOLDERS["drilldown_all"]
-    )
+    # Dimension 정규화: 이미 유효한 값이므로 그대로 사용
+    final_dimension = dimension_ui_name
 
     # Drilldown 정규화: 플레이스홀더면 "전체"로 변환
     final_drilldown = (
@@ -165,11 +161,8 @@ def build_title(proposal_name, dimension_ui_name, drilldown_selection):
     proposal_display = PROPOSAL_TITLES.get(proposal_name, proposal_name)
     title = f"{proposal_display}"
 
-    # Dimension이 유효하면 추가
-    if dimension_ui_name not in [
-        FILTER_PLACEHOLDERS["drilldown_all"],
-        FILTER_PLACEHOLDERS["level3_select"],
-    ]:
+    # Dimension이 유효하면 추가 ("개요", "전체" 제외)
+    if dimension_ui_name not in ["개요", "전체"]:
         title += f" - {dimension_ui_name}"
 
     # Drilldown이 유효하면 추가
@@ -319,6 +312,52 @@ def render_proposal_selection(selected_group):
     filename = GROUP_OVERVIEW_FILES.get(selected_group, "proposal_selection.md")
     content = load_markdown_content(filename)
     st.markdown(content)
+
+
+def get_proposal_overview_path(proposal_name, group_name):
+    """
+    제안 개요 마크다운 파일의 경로를 반환
+
+    Args:
+        proposal_name: 제안 ID (e.g., "proposal_01", "basic_proposal")
+        group_name: 그룹명 (e.g., "조직 현황 및 인력 변동")
+
+    Returns:
+        str: 마크다운 파일의 상대 경로
+    """
+    # 그룹명에서 공백 제거하여 디렉토리명 생성
+    group_dir = group_name.replace(" ", "")
+    return os.path.join(PROPOSAL_OVERVIEWS_DIR, group_dir, f"{proposal_name}.md")
+
+
+def render_proposal_overview(proposal_name, group_name):
+    """
+    제안 개요 페이지 렌더링 (L3="개요" 선택 시)
+
+    Args:
+        proposal_name: 제안 ID
+        group_name: 선택된 그룹명
+    """
+    # 제안 타이틀 표시
+    proposal_title = PROPOSAL_TITLES.get(proposal_name, proposal_name)
+    st.title(f"{proposal_title}")
+
+    # 개요 파일 경로 가져오기
+    overview_path = get_proposal_overview_path(proposal_name, group_name)
+
+    # 마크다운 콘텐츠 로드 및 표시
+    try:
+        with open(overview_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        st.markdown(content)
+    except FileNotFoundError:
+        st.warning(f"개요 파일을 찾을 수 없습니다: {overview_path}")
+        st.markdown(
+            f"# 콘텐츠를 불러올 수 없습니다\n\n`{overview_path}` 파일이 존재하지 않습니다."
+        )
+    except Exception as e:
+        st.error(f"파일 로드 중 오류 발생: {e}")
+        st.markdown(f"# 오류\n\n파일을 읽는 중 오류가 발생했습니다.")
 
 
 def render_data_visualization(
@@ -510,10 +549,8 @@ def main():
                         selected_proposal,
                     )
 
-                # L4 비활성화 조건: L1/L2 미선택 OR L3가 플레이스홀더("개요")
-                drilldown_disabled = filters_disabled or is_dimension_placeholder(
-                    selected_dimension_ui
-                )
+                # L4 비활성화 조건: L1/L2 미선택 OR L3가 "개요"
+                drilldown_disabled = filters_disabled or selected_dimension_ui == "개요"
 
                 drilldown_selection = st.selectbox(
                     "하위구분",
@@ -526,8 +563,6 @@ def main():
         # 필터 비활성화 시 사용자에게 안내 메시지
         if filters_disabled:
             st.caption("💡 그룹과 제안을 선택하면 구분 및 하위구분 필터를 사용할 수 있습니다.")
-        elif is_dimension_placeholder(selected_dimension_ui):
-            st.caption("💡 구분을 선택하면 하위구분 필터를 사용할 수 있습니다.")
 
         # Visual separator
         st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
@@ -548,26 +583,30 @@ def main():
             render_proposal_selection(selected_group)
 
         elif view_state == ViewState.DATA_VISUALIZATION:
-            # 상태 3: 실제 데이터 시각화
+            # 상태 3: 실제 데이터 시각화 또는 제안 개요
             # 필터 값 정규화
             final_dimension, final_drilldown = normalize_filter_values(
                 selected_dimension_ui, drilldown_selection
             )
 
-            # 데이터 로드 및 렌더링
-            with st.spinner("데이터를 불러오는 중..."):
-                data_bundle = get_data_bundle_for_proposal(
-                    selected_proposal, final_dimension
-                )
-                order_map = data_bundle.get("order_map", {})
+            # L3 필터가 "개요"인 경우: 제안 개요 표시
+            if final_dimension == "개요":
+                render_proposal_overview(selected_proposal, selected_group)
+            else:
+                # 데이터 로드 및 렌더링
+                with st.spinner("데이터를 불러오는 중..."):
+                    data_bundle = get_data_bundle_for_proposal(
+                        selected_proposal, final_dimension
+                    )
+                    order_map = data_bundle.get("order_map", {})
 
-                render_data_visualization(
-                    proposal_name=selected_proposal,
-                    dimension_ui_name=final_dimension,
-                    drilldown_selection=final_drilldown,
-                    data_bundle=data_bundle,
-                    order_map=order_map,
-                )
+                    render_data_visualization(
+                        proposal_name=selected_proposal,
+                        dimension_ui_name=final_dimension,
+                        drilldown_selection=final_drilldown,
+                        data_bundle=data_bundle,
+                        order_map=order_map,
+                    )
 
 
 if __name__ == "__main__":
