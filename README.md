@@ -68,6 +68,7 @@ docker run --name hra -d -p 8501:8501 -v "$(pwd)":/app -e ENVIRONMENT=prod preto
 > 예시:
 > ```cmd
 > docker run --name hra -d -p 8501:8501 -p 8888:8888 -v "%cd%":/app preto-1
+> docker run --name hra -d -p 8501:8501 -p 8888:8888 -v ${pwd}:/app preto-1
 > ```
 
 
