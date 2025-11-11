@@ -475,11 +475,11 @@ def main():
         # ================================================================
         st.sidebar.markdown("---")
         st.sidebar.markdown("#### 소개글 보기")
-        st.sidebar.markdown('<a href="https://google.com" target="_blank" style="text-decoration: none; color: inherit;">📄 소개글 보기</a>', 
+        st.sidebar.markdown('<a href="https://google.com" target="_blank" style="color: blue; text-decoration: underline;">📄 소개글 보기</a>', 
                             unsafe_allow_html=True)
 
         st.sidebar.markdown("#### 설문 참여하기")
-        st.sidebar.markdown('<a href="https://google.com" target="_blank" style="text-decoration: none; color: inherit;">📝 설문 참여하기</a>', 
+        st.sidebar.markdown('<a href="https://google.com" target="_blank" style="color: blue; text-decoration: underline;">📝 설문 참여하기</a>', 
                             unsafe_allow_html=True)
 
         # ================================================================
