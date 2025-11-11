@@ -120,13 +120,13 @@ DIMENSION_CONFIG: dict[str, dict[str, Any]] = {
         "sub": "OFFICE_NAME",
     },
     "직무별": {"type": "hierarchical", "top": "JOB_L1_NAME", "sub": "JOB_L2_NAME"},
-    "직위별": {"type": "single", "col": "POSITION_NAME"},
+    "직위직급별": {"type": "single", "col": "POSITION_NAME"},
     "성별": {"type": "single", "col": "GENDER"},
-    "연령대별": {"type": "single", "col": "AGE_BIN"},
-    "경력구간별": {"type": "single", "col": "CAREER_BIN"},
+    "연령별": {"type": "single", "col": "AGE_BIN"},
+    "경력연차별": {"type": "single", "col": "CAREER_BIN"},
     "연봉구간별": {"type": "single", "col": "SALARY_BIN"},
-    "근무지역별": {"type": "single", "col": "REGION_CATEGORY"},
-    "계약형태별": {"type": "single", "col": "CONT_CATEGORY"},
+    "지역별": {"type": "single", "col": "REGION_CATEGORY"},
+    "계약별": {"type": "single", "col": "CONT_CATEGORY"},
 }
 
 
@@ -197,13 +197,13 @@ PROPOSAL_FILTER_FORMATS: dict[str, str] = {
 BASE_DIMENSION_OPTIONS = [
     "부서별",
     "직무별",
-    "직위별",
+    "직위직급별",
     "성별",
-    "연령대별",
-    "경력구간별",
+    "연령별",
+    "경력연차별",
     "연봉구간별",
-    "근무지역별",
-    "계약형태별",
+    "지역별",
+    "계약별",
 ]
 
 
