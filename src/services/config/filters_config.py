@@ -176,17 +176,19 @@ PROPOSAL_FILTER_FORMATS: dict[str, str] = {
     "proposal_08": "FORMAT_A",
     "proposal_11": "FORMAT_A",
     "proposal_12": "FORMAT_A",
-    "proposal_13": "FORMAT_A",
     "proposal_14": "FORMAT_A",
     "proposal_16": "FORMAT_A",
     "proposal_17": "FORMAT_A",
     "proposal_19": "FORMAT_A",
+    # Format A-b: "개요" + 부서별~계약별 (전체 제외) + hierarchical drilldown 지원
+    "proposal_13": "FORMAT_A-b",
     # Format B: 전체 차원 옵션 but hierarchical drilldown 미지원 (L4 항상 "전체")
-    "proposal_05": "FORMAT_B",
     "proposal_07": "FORMAT_B",
-    "proposal_09": "FORMAT_B",
     "proposal_18": "FORMAT_B",
     "proposal_20": "FORMAT_B",
+    # Format B-b: "개요" + 부서별~계약별 (전체 제외) but hierarchical drilldown 미지원
+    "proposal_05": "FORMAT_B-b",
+    "proposal_09": "FORMAT_B-b",
     # Format C: L3/L4 모두 "전체"만 표시
     "proposal_02": "FORMAT_C",
     "proposal_10": "FORMAT_C",
@@ -313,6 +315,7 @@ def get_dimension_options_for_proposal(proposal: str) -> list[str]:
 
     Examples:
         - FORMAT_A/B: ["개요", "전체", "부서별", "직무별", ...]
+        - FORMAT_A-b/B-b: ["개요", "부서별", "직무별", ...] (전체 제외)
         - FORMAT_C: ["개요", "전체"]
     """
     format_type = PROPOSAL_FILTER_FORMATS.get(proposal, "FORMAT_A")
@@ -320,6 +323,9 @@ def get_dimension_options_for_proposal(proposal: str) -> list[str]:
     if format_type == "FORMAT_C":
         # C형식: L3는 "개요", "전체"만 표시
         return ["개요", "전체"]
+    elif format_type in ["FORMAT_A-b", "FORMAT_B-b"]:
+        # A-b/B-b형식: "개요" + 모든 차원 옵션 ("전체" 제외)
+        return ["개요"] + BASE_DIMENSION_OPTIONS
     else:
         # A/B형식: 모든 차원 옵션 표시 ("개요", "전체" 포함)
         return ["개요", "전체"] + BASE_DIMENSION_OPTIONS

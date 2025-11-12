@@ -96,11 +96,11 @@ def get_drilldown_options(
         else "FORMAT_A"
     )
 
-    # Format B and C: Always flat, no hierarchical drilldown
-    if format_type in ["FORMAT_B", "FORMAT_C"]:
+    # Format B, B-b, and C: Always flat, no hierarchical drilldown
+    if format_type in ["FORMAT_B", "FORMAT_B-b", "FORMAT_C"]:
         return [FILTER_PLACEHOLDERS["drilldown_all"]]
 
-    # Format A: Support hierarchical drilldown for 부서별/직무별
+    # Format A and A-b: Support hierarchical drilldown for 부서별/직무별
     if config.get("type") == "hierarchical":
         # For hierarchical dimensions, get unique top-level values
         top_col = config.get("top")
