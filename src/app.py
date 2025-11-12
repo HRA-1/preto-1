@@ -302,7 +302,25 @@ def render_group_overview():
     그룹 개요 페이지 표시 (L1=개요, L2=개요)
     """
     content = load_markdown_content("group_overview.md")
-    st.markdown(content)
+    # Remove the image line from markdown if it exists
+    content_without_image = content.replace("![대시보드 사용법](./group_overview.gif)", "")
+    st.markdown(content_without_image)
+
+    # GIF 바로 표시
+    gif_path = os.path.join(OVERVIEWS_DIR, "group_overview.gif")
+    if os.path.exists(gif_path):
+        # 세션 스테이트에 캐시
+        if 'gif_overview_loaded' not in st.session_state:
+            with st.spinner("사용법 안내를 불러오는 중..."):
+                import base64
+                with open(gif_path, "rb") as f:
+                    gif_bytes = f.read()
+                st.session_state.gif_overview_loaded = base64.b64encode(gif_bytes).decode()
+
+        st.markdown(
+            f'<img src="data:image/gif;base64,{st.session_state.gif_overview_loaded}" style="width:100%; max-width:100%;">',
+            unsafe_allow_html=True
+        )
 
 
 def render_proposal_selection(selected_group):
