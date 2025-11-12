@@ -323,9 +323,9 @@ def get_dimension_options_for_proposal(proposal: str) -> list[str]:
     if format_type == "FORMAT_C":
         # C형식: L3는 "개요", "전체"만 표시
         return ["개요", "전체"]
-    elif format_type in ["FORMAT_A-b", "FORMAT_B-b"]:
-        # A-b/B-b형식: "개요" + 모든 차원 옵션 ("전체" 제외)
+    elif format_type in ["FORMAT_A", "FORMAT_B"]:
+        # A/B형식: 모든 차원 옵션 표시 ("개요", "전체" 포함)
         return ["개요"] + BASE_DIMENSION_OPTIONS
     else:
-        # A/B형식: 모든 차원 옵션 표시 ("개요", "전체" 포함)
+        # A-b/B-b형식: "개요" + 모든 차원 옵션 ("전체" 제외)
         return ["개요", "전체"] + BASE_DIMENSION_OPTIONS
