@@ -172,7 +172,7 @@ PROPOSAL_FILTER_FORMATS: dict[str, str] = {
     "proposal_01": "FORMAT_A",
     "proposal_03": "FORMAT_A",
     "proposal_04": "FORMAT_A",
-    "proposal_06": "FORMAT_A",
+    "proposal_06": "FORMAT_C",
     "proposal_08": "FORMAT_A",
     "proposal_11": "FORMAT_A",
     "proposal_12": "FORMAT_A",
