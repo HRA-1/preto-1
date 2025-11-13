@@ -51,6 +51,7 @@ docker run --name hra -d -p 8501:8501 -p 8888:8888 -v "$(pwd)":/app -e ENVIRONME
 
 ```sh
 docker run --name hra -d -p 8501:8501 -v "$(pwd)":/app -e ENVIRONMENT=prod preto-1
+docker run --name hra -d -p 8501:8501 -v ${pwd}:/app -e ENVIRONMENT=prod preto-1
 ```
 
 **자동 설정**:
