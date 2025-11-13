@@ -1077,6 +1077,9 @@ def prepare_proposal_06_data(
     
     # 5. 모든 차원별로 코호트 데이터 계산
     cohort_data_bundle = {}
+    cohort_data_bundle['전체'] = {
+        '전체': _create_cohort_data(analysis_df)
+    }
     
     dimensions = {
         '부서별': 'DIVISION_NAME', '직무별': 'JOB_L1_NAME', '직위직급별': 'POSITION_NAME',
