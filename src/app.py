@@ -296,6 +296,22 @@ def load_proposal_view(
         return None, None
 
 
+@st.cache_resource
+def load_gif_base64(gif_path):
+    """
+    GIF 파일을 base64로 인코딩하여 캐시 (앱 레벨, 모든 사용자 공유)
+
+    Args:
+        gif_path: GIF 파일 경로
+
+    Returns:
+        str: base64 인코딩된 문자열
+    """
+    import base64
+    with open(gif_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
 def render_group_overview():
     """
     ViewState.GROUP_OVERVIEW 상태의 렌더링
@@ -306,19 +322,12 @@ def render_group_overview():
     content_without_image = content.replace("![대시보드 사용법](./group_overview.gif)", "")
     st.markdown(content_without_image)
 
-    # GIF 바로 표시
+    # GIF 애니메이션 표시 (@st.cache_resource로 앱 레벨 캐싱)
     gif_path = os.path.join(OVERVIEWS_DIR, "group_overview.gif")
     if os.path.exists(gif_path):
-        # 세션 스테이트에 캐시
-        if 'gif_overview_loaded' not in st.session_state:
-            with st.spinner("사용법 안내를 불러오는 중..."):
-                import base64
-                with open(gif_path, "rb") as f:
-                    gif_bytes = f.read()
-                st.session_state.gif_overview_loaded = base64.b64encode(gif_bytes).decode()
-
+        gif_base64 = load_gif_base64(gif_path)
         st.markdown(
-            f'<img src="data:image/gif;base64,{st.session_state.gif_overview_loaded}" style="width:100%; max-width:100%;">',
+            f'<img src="data:image/gif;base64,{gif_base64}" style="width:100%; max-width:100%;">',
             unsafe_allow_html=True
         )
 
