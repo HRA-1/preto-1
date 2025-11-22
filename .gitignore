@@ -134,3 +134,7 @@ dmypy.json
 # Infrastructure temporary files
 infra/ecs/infrastructure.env
 infra/ecs/ecs-task-definition-generated.json
+logs/
+
+# mcp
+.mcp.json
