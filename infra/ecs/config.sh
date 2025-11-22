@@ -29,7 +29,7 @@ ECS_CONTAINER_NAME="${PROJECT_NAME}-${APP_NAME}-container"
 
 # 컴퓨팅 리소스 (고성능 설정)
 ECS_CPU="2048"      # 2 vCPU
-ECS_MEMORY="4096"   # 4 GB
+ECS_MEMORY="8192"   # 8 GB (OOM 방지를 위해 4GB에서 증가)
 ECS_DESIRED_COUNT="1"
 
 # 네트워킹
