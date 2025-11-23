@@ -122,8 +122,15 @@ check_ecs_cluster() {
 }
 
 check_ecs_service() {
-    aws ecs describe-services --cluster "$ECS_CLUSTER_NAME" --services "$ECS_SERVICE_NAME" --region "$AWS_REGION" \
-        --query 'services[0].status' --output text 2>/dev/null | grep -q "ACTIVE"
+    local service_status=$(aws ecs describe-services --cluster "$ECS_CLUSTER_NAME" --services "$ECS_SERVICE_NAME" --region "$AWS_REGION" \
+        --query 'services[0].status' --output text 2>/dev/null)
+
+    # ACTIVE 상태인 경우에만 true 반환
+    if [ "$service_status" = "ACTIVE" ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # 환경 변수 로드

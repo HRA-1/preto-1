@@ -107,7 +107,15 @@ log_step "6. ECS 서비스 배포"
 # 서브넷 배열 변환
 SUBNET_ARRAY=($SUBNET_IDS)
 
-if check_ecs_service; then
+# 서비스 상태 확인 (ACTIVE, DRAINING, INACTIVE 등)
+SERVICE_STATUS=$(aws ecs describe-services \
+    --cluster "$ECS_CLUSTER_NAME" \
+    --services "$ECS_SERVICE_NAME" \
+    --region "$AWS_REGION" \
+    --query 'services[0].status' \
+    --output text 2>/dev/null || echo "NOT_FOUND")
+
+if [ "$SERVICE_STATUS" = "ACTIVE" ]; then
     log_info "기존 ECS 서비스 업데이트: $ECS_SERVICE_NAME"
 
     # 서비스 업데이트
@@ -119,6 +127,78 @@ if check_ecs_service; then
         --region "$AWS_REGION" > /dev/null
 
     log_success "ECS 서비스 업데이트 시작"
+
+elif [ "$SERVICE_STATUS" = "DRAINING" ]; then
+    log_warning "서비스가 DRAINING 상태입니다. 완전히 삭제될 때까지 대기 중..."
+
+    # 서비스 삭제 대기 (최대 5분)
+    log_info "서비스 삭제 대기 중... (최대 5분)"
+    WAIT_COUNT=0
+    while [ $WAIT_COUNT -lt 30 ]; do
+        CURRENT_STATUS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --services "$ECS_SERVICE_NAME" \
+            --region "$AWS_REGION" \
+            --query 'services[0].status' \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+
+        if [ "$CURRENT_STATUS" = "INACTIVE" ] || [ "$CURRENT_STATUS" = "NOT_FOUND" ] || [ -z "$CURRENT_STATUS" ]; then
+            log_success "서비스가 비활성화되었습니다"
+            break
+        fi
+
+        log_info "대기 중... ($((WAIT_COUNT * 10))초 경과, 상태: $CURRENT_STATUS)"
+        sleep 10
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+    done
+
+    if [ $WAIT_COUNT -ge 30 ]; then
+        log_error "서비스 삭제 대기 시간 초과"
+        exit 1
+    fi
+
+    # 새 서비스 생성
+    log_info "새 ECS 서비스 생성: $ECS_SERVICE_NAME"
+    aws ecs create-service \
+        --cluster "$ECS_CLUSTER_NAME" \
+        --service-name "$ECS_SERVICE_NAME" \
+        --task-definition "$ECS_TASK_FAMILY:$TASK_REVISION" \
+        --desired-count "$ECS_DESIRED_COUNT" \
+        --launch-type FARGATE \
+        --network-configuration "awsvpcConfiguration={subnets=[${SUBNET_ARRAY[0]},${SUBNET_ARRAY[1]}],securityGroups=[$SECURITY_GROUP_ID],assignPublicIp=ENABLED}" \
+        --load-balancers "targetGroupArn=$TARGET_GROUP_ARN,containerName=$ECS_CONTAINER_NAME,containerPort=$CONTAINER_PORT" \
+        --health-check-grace-period-seconds 300 \
+        --region "$AWS_REGION" > /dev/null
+
+    log_success "ECS 서비스 생성 완료"
+
+elif [ "$SERVICE_STATUS" = "INACTIVE" ]; then
+    log_warning "서비스가 INACTIVE 상태입니다. 삭제 후 새로 생성합니다."
+
+    # INACTIVE 서비스 삭제 (즉시 완료됨)
+    aws ecs delete-service \
+        --cluster "$ECS_CLUSTER_NAME" \
+        --service "$ECS_SERVICE_NAME" \
+        --region "$AWS_REGION" > /dev/null 2>&1 || true
+
+    log_info "INACTIVE 서비스 삭제 완료, 잠시 대기 중..."
+    sleep 5
+
+    # 새 서비스 생성
+    log_info "새 ECS 서비스 생성: $ECS_SERVICE_NAME"
+    aws ecs create-service \
+        --cluster "$ECS_CLUSTER_NAME" \
+        --service-name "$ECS_SERVICE_NAME" \
+        --task-definition "$ECS_TASK_FAMILY:$TASK_REVISION" \
+        --desired-count "$ECS_DESIRED_COUNT" \
+        --launch-type FARGATE \
+        --network-configuration "awsvpcConfiguration={subnets=[${SUBNET_ARRAY[0]},${SUBNET_ARRAY[1]}],securityGroups=[$SECURITY_GROUP_ID],assignPublicIp=ENABLED}" \
+        --load-balancers "targetGroupArn=$TARGET_GROUP_ARN,containerName=$ECS_CONTAINER_NAME,containerPort=$CONTAINER_PORT" \
+        --health-check-grace-period-seconds 300 \
+        --region "$AWS_REGION" > /dev/null
+
+    log_success "ECS 서비스 생성 완료"
+
 else
     log_info "새 ECS 서비스 생성: $ECS_SERVICE_NAME"
 
