@@ -19,24 +19,33 @@ terraform {
 # Provider 설정
 # ========================================
 provider "aws" {
-  region = "ap-northeast-2"
+  region = var.aws_region
 
   # 학습 포인트: default_tags를 사용하면 모든 리소스에 자동으로 태그 적용
   # 수동으로 각 리소스마다 태그를 추가할 필요가 없어 관리가 편함
   default_tags {
     tags = {
-      Project     = "preto"
-      Environment = "prod"
+      Project     = var.project_name
+      Environment = var.environment
       ManagedBy   = "Terraform"
     }
   }
 }
 
 # ========================================
+# Local Values
+# ========================================
+# 학습 포인트: locals는 반복되는 표현식을 변수처럼 재사용
+# 리소스 이름 등을 일관되게 관리할 때 유용
+locals {
+  name_prefix = "${var.project_name}-${var.app_name}"
+}
+
+# ========================================
 # ECR 리포지토리
 # ========================================
 resource "aws_ecr_repository" "app" {
-  name = "preto-streamlit-app"
+  name = local.name_prefix
 
   # 이미지 태그 변경 가능 여부
   # MUTABLE: latest 태그를 덮어쓸 수 있음 (개발 환경에 유용)
@@ -55,7 +64,7 @@ resource "aws_ecr_repository" "app" {
   }
 
   tags = {
-    Name = "preto-streamlit-app-ecr"
+    Name = "${local.name_prefix}-ecr"
   }
 }
 
@@ -104,11 +113,11 @@ data "aws_iam_policy_document" "ecs_task_execution_assume_role" {
 }
 
 resource "aws_iam_role" "ecs_task_execution" {
-  name               = "preto-streamlit-app-exec-role"
+  name               = "${local.name_prefix}-exec-role"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_execution_assume_role.json
 
   tags = {
-    Name = "preto-streamlit-app-exec-role"
+    Name = "${local.name_prefix}-exec-role"
   }
 }
 
@@ -140,11 +149,11 @@ data "aws_iam_policy_document" "ecs_task_assume_role" {
 }
 
 resource "aws_iam_role" "ecs_task" {
-  name               = "preto-streamlit-app-task-role"
+  name               = "${local.name_prefix}-task-role"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
 
   tags = {
-    Name = "preto-streamlit-app-task-role"
+    Name = "${local.name_prefix}-task-role"
   }
 }
 
@@ -155,7 +164,7 @@ resource "aws_iam_role" "ecs_task" {
 # 기존 Bash 스크립트로 생성한 VPC, 서브넷, 보안 그룹 등을 재사용
 
 data "aws_vpc" "main" {
-  id = "vpc-0c11696cf8468ca8e"
+  id = var.vpc_id
 }
 
 data "aws_subnets" "main" {
@@ -166,27 +175,27 @@ data "aws_subnets" "main" {
 
   filter {
     name   = "subnet-id"
-    values = ["subnet-0cd2fcdff481b49c2", "subnet-0892735c449ac40db"]
+    values = var.subnet_ids
   }
 }
 
 data "aws_security_group" "app" {
-  id = "sg-0193a7c1c72f2a43c"
+  id = var.security_group_id
 }
 
 data "aws_lb_target_group" "app" {
-  arn = "arn:aws:elasticloadbalancing:ap-northeast-2:201023212334:targetgroup/preto-streamlit-app-tg/3e75a65e5bbcaa20"
+  arn = var.target_group_arn
 }
 
 # ========================================
 # CloudWatch Logs
 # ========================================
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "/ecs/preto-streamlit-app"
-  retention_in_days = 14
+  name              = "/ecs/${local.name_prefix}"
+  retention_in_days = var.log_retention_days
 
   tags = {
-    Name = "preto-streamlit-app-logs"
+    Name = "${local.name_prefix}-logs"
   }
 }
 
@@ -196,10 +205,10 @@ resource "aws_cloudwatch_log_group" "app" {
 # 학습 포인트: Fargate 모드에서는 클러스터 설정이 매우 간단
 # EC2 모드와 달리 인스턴스 관리가 필요 없음
 resource "aws_ecs_cluster" "main" {
-  name = "preto-streamlit-app-cluster"
+  name = "${local.name_prefix}-cluster"
 
   tags = {
-    Name = "preto-streamlit-app-cluster"
+    Name = "${local.name_prefix}-cluster"
   }
 }
 
@@ -213,11 +222,11 @@ resource "aws_ecs_cluster" "main" {
 # - 로그를 어디에 쓸지
 # 등을 정의
 resource "aws_ecs_task_definition" "app" {
-  family                   = "preto-streamlit-app"
+  family                   = local.name_prefix
   network_mode             = "awsvpc" # Fargate는 awsvpc 필수
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "2048" # 2 vCPU
-  memory                   = "8192" # 8 GB
+  cpu                      = var.ecs_cpu
+  memory                   = var.ecs_memory
 
   # IAM 역할 연결
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
@@ -232,13 +241,13 @@ resource "aws_ecs_task_definition" "app" {
   # 컨테이너 정의
   container_definitions = jsonencode([
     {
-      name      = "preto-streamlit-app-container"
+      name      = "${local.name_prefix}-container"
       image     = "${aws_ecr_repository.app.repository_url}:latest"
       essential = true
 
       portMappings = [
         {
-          containerPort = 8501
+          containerPort = var.container_port
           protocol      = "tcp"
         }
       ]
@@ -246,7 +255,7 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         {
           name  = "ENVIRONMENT"
-          value = "prod"
+          value = var.environment
         }
       ]
 
@@ -255,7 +264,7 @@ resource "aws_ecs_task_definition" "app" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.app.name
-          "awslogs-region"        = "ap-northeast-2"
+          "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -263,7 +272,7 @@ resource "aws_ecs_task_definition" "app" {
   ])
 
   tags = {
-    Name = "preto-streamlit-app-task-def"
+    Name = "${local.name_prefix}-task-def"
   }
 }
 
@@ -275,10 +284,10 @@ resource "aws_ecs_task_definition" "app" {
 # - 장애 발생 시 자동으로 새 태스크 시작
 # - ALB와 연동하여 트래픽 분산
 resource "aws_ecs_service" "app" {
-  name            = "preto-streamlit-app-service"
+  name            = "${local.name_prefix}-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 1
+  desired_count   = var.ecs_desired_count
   launch_type     = "FARGATE"
 
   # 학습 포인트: Fargate는 awsvpc 네트워크 모드 사용
@@ -293,20 +302,20 @@ resource "aws_ecs_service" "app" {
   # Target Group에 태스크를 자동 등록/해제
   load_balancer {
     target_group_arn = data.aws_lb_target_group.app.arn
-    container_name   = "preto-streamlit-app-container"
-    container_port   = 8501
+    container_name   = "${local.name_prefix}-container"
+    container_port   = var.container_port
   }
 
   # 학습 포인트: 헬스체크 유예 시간
   # 컨테이너 시작 후 헬스체크 실패를 무시할 시간 (초)
   # 애플리케이션 초기화 시간을 고려하여 설정
-  health_check_grace_period_seconds = 300
+  health_check_grace_period_seconds = var.health_check_grace_period
 
   # 학습 포인트: 서비스 업데이트 시 ALB 헬스체크 완료를 기다림
   # 새 태스크가 healthy 상태가 된 후 이전 태스크 종료
   depends_on = [aws_iam_role_policy_attachment.ecs_task_execution]
 
   tags = {
-    Name = "preto-streamlit-app-service"
+    Name = "${local.name_prefix}-service"
   }
 }
