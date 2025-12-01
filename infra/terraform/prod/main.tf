@@ -80,3 +80,70 @@ resource "aws_ecr_lifecycle_policy" "app" {
     ]
   })
 }
+
+# ========================================
+# IAM 역할: Task Execution Role
+# ========================================
+# Task Execution Role: ECS 에이전트가 사용
+# - ECR에서 이미지 pull
+# - CloudWatch Logs에 로그 작성
+# - Secrets Manager에서 시크릿 읽기 (필요 시)
+
+# Trust Policy: 어떤 AWS 서비스가 이 역할을 assume 할 수 있는지 정의
+data "aws_iam_policy_document" "ecs_task_execution_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "ecs_task_execution" {
+  name               = "preto-streamlit-app-exec-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_execution_assume_role.json
+
+  tags = {
+    Name = "preto-streamlit-app-exec-role"
+  }
+}
+
+# AWS 관리형 정책 연결
+# AmazonECSTaskExecutionRolePolicy: ECR pull, CloudWatch Logs 권한 포함
+resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# ========================================
+# IAM 역할: Task Role
+# ========================================
+# Task Role: 컨테이너 내 애플리케이션이 사용
+# - 애플리케이션이 AWS SDK를 통해 AWS 서비스 호출 시 사용
+# - 현재는 권한 없음, 필요 시 정책 추가 (예: S3, DynamoDB 접근)
+
+data "aws_iam_policy_document" "ecs_task_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "ecs_task" {
+  name               = "preto-streamlit-app-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
+
+  tags = {
+    Name = "preto-streamlit-app-task-role"
+  }
+}
