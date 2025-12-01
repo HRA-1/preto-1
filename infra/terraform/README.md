@@ -16,23 +16,14 @@ terraform/
 │   ├── iam/             # IAM 역할 (Task Execution, Task Role)
 │   └── network/         # 네트워크 인프라 참조 (VPC, ALB 등)
 │
-├── environments/         # 환경별 설정
-│   ├── dev/             # 개발 환경 (미구현)
-│   └── prod/            # 프로덕션 환경
-│
-└── prod/                 # Phase 1 레거시 (삭제 예정)
+└── environments/         # 환경별 설정
+    ├── dev/             # 개발 환경 (미구현)
+    └── prod/            # 프로덕션 환경
 ```
 
-## Phase별 진행 상황
+## 아키텍처 특징
 
-### ✅ Phase 1: MVP - 모놀리식 구조
-- 단일 파일(main.tf)에 모든 리소스 정의
-- 변수화 및 출력값 분리
-- 기본 문서화
-
-**위치**: `prod/` (레거시, 삭제 예정)
-
-### ✅ Phase 2: 모듈화 및 환경 분리
+### ✅ 모듈화 구조
 - 논리적 단위로 모듈 분리 (ECR, IAM, ECS, Network)
 - 환경별 디렉토리 구조 (`environments/`)
 - 모듈 재사용을 통한 DRY 원칙 적용
@@ -213,23 +204,6 @@ module "ecs" {
 }
 ```
 
-## Phase 1에서 Phase 2로 마이그레이션
-
-**기존 Phase 1 환경이 실행 중인 경우:**
-
-```bash
-# 1. Phase 1 리소스 정리
-cd prod/
-terraform destroy
-
-# 2. Phase 2 환경 배포
-cd ../environments/prod/
-terraform init
-terraform apply
-```
-
-**주의**: Phase 1과 Phase 2는 동일한 리소스를 생성하므로 동시에 실행하면 충돌 발생
-
 ## 학습 포인트
 
 ### 1. 모듈 재사용성
@@ -283,8 +257,8 @@ Error: Cycle: module.a, module.b
 **해결**: 모듈 간 의존성 재검토, 불필요한 참조 제거
 
 ### State 파일 충돌
-**문제**: Phase 1과 Phase 2 동시 사용
-**해결**: Phase 1 리소스 먼저 제거 후 Phase 2 배포
+**문제**: 여러 환경(dev/prod)에서 동일한 리소스 이름 사용
+**해결**: 각 환경의 리소스 이름에 환경별 prefix 사용
 
 ## 다음 단계
 
