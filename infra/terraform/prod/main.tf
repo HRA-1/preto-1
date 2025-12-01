@@ -266,3 +266,47 @@ resource "aws_ecs_task_definition" "app" {
     Name = "preto-streamlit-app-task-def"
   }
 }
+
+# ========================================
+# ECS 서비스
+# ========================================
+# 학습 포인트: ECS Service는 Task Definition을 실제로 실행하고 유지
+# - 원하는 태스크 수 유지 (desired count)
+# - 장애 발생 시 자동으로 새 태스크 시작
+# - ALB와 연동하여 트래픽 분산
+resource "aws_ecs_service" "app" {
+  name            = "preto-streamlit-app-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.app.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  # 학습 포인트: Fargate는 awsvpc 네트워크 모드 사용
+  # 각 태스크가 독립적인 ENI를 가지며 VPC 내에서 실행
+  network_configuration {
+    subnets          = data.aws_subnets.main.ids
+    security_groups  = [data.aws_security_group.app.id]
+    assign_public_ip = true # 퍼블릭 서브넷에서 실행 시 필요
+  }
+
+  # 학습 포인트: ALB와 연동 설정
+  # Target Group에 태스크를 자동 등록/해제
+  load_balancer {
+    target_group_arn = data.aws_lb_target_group.app.arn
+    container_name   = "preto-streamlit-app-container"
+    container_port   = 8501
+  }
+
+  # 학습 포인트: 헬스체크 유예 시간
+  # 컨테이너 시작 후 헬스체크 실패를 무시할 시간 (초)
+  # 애플리케이션 초기화 시간을 고려하여 설정
+  health_check_grace_period_seconds = 300
+
+  # 학습 포인트: 서비스 업데이트 시 ALB 헬스체크 완료를 기다림
+  # 새 태스크가 healthy 상태가 된 후 이전 태스크 종료
+  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution]
+
+  tags = {
+    Name = "preto-streamlit-app-service"
+  }
+}
