@@ -138,3 +138,27 @@ logs/
 
 # mcp
 .mcp.json
+
+# ========================================
+# Terraform
+# ========================================
+# 학습 포인트: State 파일에는 민감 정보가 포함될 수 있으므로 Git에 포함하지 않음
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform 플러그인 디렉토리
+.terraform/
+.terraform.lock.hcl
+
+# 로컬 환경 설정 파일
+*.tfvars.local
+override.tf
+override.tf.json
+
+# ========================================
+# 민감 정보
+# ========================================
+*.pem
+*.key
+secrets.auto.tfvars
