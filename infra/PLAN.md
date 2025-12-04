@@ -155,7 +155,7 @@ infra/terraform/
 **학습 포인트**:
 - Terraform State의 중요성
 - Backend 설정 방법
-- State Locking (DynamoDB)
+- S3 Native Locking (Terraform 1.10+, DynamoDB 불필요)
 - 환경별 tfvars 관리
 
 **커밋 전략**:
@@ -224,9 +224,9 @@ infra/terraform/
 # Terraform 설정
 # ========================================
 terraform {
-  # Terraform 버전 제약: 1.6.0 이상, 2.0.0 미만
+  # Terraform 버전 제약: 1.10.0 이상 (S3 Native Locking 지원)
   # 학습 포인트: 버전을 고정하여 팀 간 일관성 보장
-  required_version = ">= 1.6.0, < 2.0.0"
+  required_version = ">= 1.10.0, < 2.0.0"
 
   required_providers {
     aws = {
@@ -795,7 +795,7 @@ Thumbs.db
 
 ## 🏗️ Terraform Best Practices
 
-### 1. State 관리 (S3 + DynamoDB)
+### 1. State 관리 (S3 Native Locking)
 
 **S3 Backend 설정:**
 
@@ -803,14 +803,20 @@ Thumbs.db
 # environments/prod/backend.tf
 terraform {
   backend "s3" {
-    bucket         = "preto-terraform-state-prod"
-    key            = "ecs/terraform.tfstate"
-    region         = "ap-northeast-2"
-    encrypt        = true
-    dynamodb_table = "preto-terraform-locks"
+    bucket       = "preto-terraform-state"
+    key          = "prod/terraform.tfstate"
+    region       = "ap-northeast-2"
+    encrypt      = true
+    use_lockfile = true  # S3 Native Locking (Terraform 1.10+)
   }
 }
 ```
+
+**S3 Native Locking 선택 이유:**
+- DynamoDB 불필요 → 비용 $0, 관리 포인트 감소
+- Terraform 1.10+에서 지원 (2024년 추가)
+- `.tflock` 파일을 S3에 생성하여 동시 수정 방지
+- 기존 DynamoDB 방식과 동일한 안전성 제공
 
 **장점:**
 - 팀 협업 가능 (원격 state 공유)
@@ -983,7 +989,7 @@ tags = {
 ```hcl
 # environments/prod/versions.tf
 terraform {
-  required_version = ">= 1.6.0, < 2.0.0"
+  required_version = ">= 1.10.0, < 2.0.0"  # S3 Native Locking 지원
 
   required_providers {
     aws = {
@@ -1099,10 +1105,20 @@ output "cloudwatch_log_group" {
 
 ### 8. 보안 Best Practices
 
-**State 파일 암호화:**
+**S3 Backend 인프라 (global/s3-backend/main.tf):**
 
 ```hcl
 # global/s3-backend/main.tf
+# S3 버킷만 생성 - DynamoDB 불필요 (S3 Native Locking 사용)
+
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = "preto-terraform-state"
+
+  lifecycle {
+    prevent_destroy = true  # 실수로 삭제 방지
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -1117,7 +1133,7 @@ resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.terraform_state.id
 
   versioning_configuration {
-    status = "Enabled"
+    status = "Enabled"  # State 히스토리 보존 및 롤백 지원
   }
 }
 
@@ -1129,6 +1145,10 @@ resource "aws_s3_bucket_public_access_block" "state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+# 참고: DynamoDB 테이블 불필요
+# Terraform 1.10+에서 use_lockfile = true 설정 시
+# S3에 .tflock 파일을 생성하여 동시 수정 방지
 ```
 
 **.gitignore 설정:**
@@ -1191,7 +1211,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.10.0  # S3 Native Locking 지원
 
       - name: Terraform Format Check
         working-directory: infra/terraform/environments/${{ matrix.environment }}
@@ -1284,7 +1304,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.10.0  # S3 Native Locking 지원
 
       - name: Terraform Init
         working-directory: infra/terraform/environments/${{ matrix.environment }}
@@ -1452,7 +1472,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.10.0  # S3 Native Locking 지원
 
       - name: Terraform Init
         working-directory: infra/terraform/environments/${{ github.event.inputs.environment }}
@@ -1562,12 +1582,12 @@ jobs:
 - [ ] **작업 1**: S3 Backend 인프라
   - 커밋: `feat: add S3 backend infrastructure`
   - `global/s3-backend/` 생성
-  - S3 버킷, DynamoDB 테이블 생성
-  - **학습 포인트**: State의 중요성, Backend 개념
+  - S3 버킷만 생성 (DynamoDB 불필요 - S3 Native Locking 사용)
+  - **학습 포인트**: State의 중요성, Backend 개념, S3 Native Locking
 
 - [ ] **작업 2**: Prod 환경 Backend 마이그레이션
   - 커밋: `feat: migrate prod to S3 backend`
-  - `backend.tf` 추가
+  - `backend.tf` 추가 (`use_lockfile = true` 설정)
   - `terraform init -migrate-state`
   - **학습 포인트**: State 마이그레이션
 
@@ -1583,7 +1603,7 @@ jobs:
 **학습 체크리스트**:
 - [ ] Terraform State의 역할 이해
 - [ ] Backend 설정 방법 이해
-- [ ] State Locking 개념 이해
+- [ ] S3 Native Locking 개념 이해 (`use_lockfile = true`)
 - [ ] 환경별 관리 전략 이해
 
 ---
@@ -1660,7 +1680,7 @@ jobs:
 - [ ] S3 State 버킷 암호화 활성화
 - [ ] S3 State 버킷 버전 관리 활성화
 - [ ] S3 State 버킷 Public Access 차단
-- [ ] DynamoDB State Lock 테이블 생성
+- [ ] S3 Native Locking 설정 (`use_lockfile = true`)
 
 ### GitHub
 - [ ] Repository Secrets 설정 (최소화)
