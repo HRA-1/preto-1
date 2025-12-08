@@ -23,8 +23,8 @@ DEV_MODE = os.getenv("STREAMLIT_DEV_MODE", "true").lower() in ("true", "1", "yes
 if DEV_MODE:
     # 개발 모드: 빠른 로딩을 위해 데이터 크기 축소
     # 환경변수로 오버라이드 가능
-    NUM_EMPLOYEES = int(os.getenv("STREAMLIT_NUM_EMPLOYEES", "20"))
-    DATE_RANGE_START = os.getenv("STREAMLIT_DATE_START", "2024-07-01")
+    NUM_EMPLOYEES = int(os.getenv("STREAMLIT_NUM_EMPLOYEES", "1000"))
+    DATE_RANGE_START = os.getenv("STREAMLIT_DATE_START", "2020-01-01")
 
     print("🔧 [DEV MODE] 개발 모드 활성화:")
     print(f"   - 직원 수: {NUM_EMPLOYEES}명")
