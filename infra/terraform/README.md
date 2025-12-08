@@ -4,12 +4,15 @@
 
 이 디렉토리는 Preto Streamlit 애플리케이션의 AWS 인프라를 Terraform으로 관리합니다.
 
-**현재 단계**: Phase 2 - 모듈화 및 환경 분리 완료
+**현재 단계**: Phase 3 - S3 Backend + 환경 분리 완료
 
 ## 디렉토리 구조
 
 ```
 terraform/
+├── global/               # 글로벌 리소스
+│   └── s3-backend/      # Terraform State 저장용 S3 버킷
+│
 ├── modules/              # 재사용 가능한 Terraform 모듈
 │   ├── ecr/             # ECR 리포지토리 관리
 │   ├── ecs/             # ECS 클러스터, 서비스, Task Definition
@@ -17,13 +20,13 @@ terraform/
 │   └── network/         # 네트워크 인프라 참조 (VPC, ALB 등)
 │
 └── environments/         # 환경별 설정
-    ├── dev/             # 개발 환경 (미구현)
+    ├── dev/             # 개발 환경
     └── prod/            # 프로덕션 환경
 ```
 
 ## 아키텍처 특징
 
-### ✅ 모듈화 구조
+### ✅ 모듈화 구조 (Phase 2)
 - 논리적 단위로 모듈 분리 (ECR, IAM, ECS, Network)
 - 환경별 디렉토리 구조 (`environments/`)
 - 모듈 재사용을 통한 DRY 원칙 적용
@@ -31,10 +34,18 @@ terraform/
 
 **위치**: `modules/`, `environments/prod/`
 
-### 🔄 Phase 3: S3 Backend 및 State 관리 (예정)
-- Terraform State를 S3에 저장
-- State Locking (DynamoDB)
-- 환경별 State 분리
+### ✅ S3 Backend + 환경 분리 (Phase 3)
+- Terraform State를 S3에 저장 (`global/s3-backend/`)
+- S3 Native Locking (`use_lockfile = true`) - DynamoDB 불필요
+- Dev/Prod 환경 분리 (`environments/dev/`, `environments/prod/`)
+- Terraform 1.10+ 필수
+
+**State 저장 구조**:
+```
+s3://preto-terraform-state/
+├── dev/terraform.tfstate
+└── prod/terraform.tfstate
+```
 
 ### 🔄 Phase 4: CI/CD 자동화 (예정)
 - GitHub Actions 워크플로우
@@ -100,23 +111,53 @@ ECS 클러스터 및 서비스 관리
 
 ## 환경별 사용 방법
 
-### Production 환경 배포
+### 0. S3 Backend 초기화 (최초 1회)
 
 ```bash
-# 1. Production 디렉토리로 이동
+# S3 버킷 생성
+cd global/s3-backend
+terraform init
+terraform apply
+```
+
+### 1. Production 환경 배포
+
+```bash
 cd environments/prod
 
-# 2. Terraform 초기화
+# S3 Backend로 초기화
 terraform init
 
-# 3. 실행 계획 확인
+# 실행 계획 확인
 terraform plan
 
-# 4. 인프라 배포
+# 인프라 배포
 terraform apply
 
-# 5. 출력값 확인
+# 출력값 확인
 terraform output
+```
+
+### 2. Dev 환경 배포
+
+```bash
+cd environments/dev
+
+# S3 Backend로 초기화 (별도 State 경로)
+terraform init
+
+terraform plan
+terraform apply
+```
+
+### Local State → S3 마이그레이션 (기존 환경)
+
+```bash
+cd environments/prod
+
+# backend.tf 추가 후 마이그레이션
+terraform init -migrate-state
+# "yes" 입력하여 State 이동 확인
 ```
 
 ### 변수 재정의
@@ -262,15 +303,16 @@ Error: Cycle: module.a, module.b
 
 ## 다음 단계
 
-1. **Phase 3**: S3 Backend 설정으로 팀 협업 지원
-2. **Phase 4**: GitHub Actions CI/CD 파이프라인
+1. **Phase 4**: GitHub Actions CI/CD 파이프라인
+2. **Phase 5**: Auto Scaling, CloudWatch 알람, Secrets Manager 연동
 3. **Network 모듈 확장**: VPC, ALB 실제 생성 기능 추가
-4. **Dev 환경 구성**: 개발 환경 완전 분리
 
 자세한 로드맵은 `/infra/PLAN.md` 참조
 
 ## 참고 자료
 
 - [Terraform 모듈 문서](https://developer.hashicorp.com/terraform/language/modules)
+- [Terraform S3 Backend](https://developer.hashicorp.com/terraform/language/backend/s3)
 - [AWS Provider 문서](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [S3 Backend 설정](global/s3-backend/README.md)
 - [환경별 설정 README](environments/prod/README.md)
