@@ -74,11 +74,14 @@ output "subnet_ids" {
 }
 
 # ========================================
-# ALB 정보 (하드코딩)
+# ALB 정보
 # ========================================
-# 학습 포인트: 아직 ALB가 Terraform으로 관리되지 않으므로 임시로 하드코딩
-# Phase 3+에서 ALB도 모듈화하면 동적으로 참조 가능
 output "alb_dns_name" {
   description = "ALB DNS 이름 (애플리케이션 접속 URL)"
-  value       = "preto-streamlit-app-alb-77728036.ap-northeast-2.elb.amazonaws.com"
+  value       = module.network.alb_dns_name
+}
+
+output "application_url" {
+  description = "애플리케이션 URL"
+  value       = "http://${module.network.alb_dns_name}"
 }

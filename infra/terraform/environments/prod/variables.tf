@@ -96,9 +96,3 @@ variable "security_group_id" {
   type        = string
   default     = "sg-0193a7c1c72f2a43c"
 }
-
-variable "target_group_arn" {
-  description = "기존 ALB Target Group ARN"
-  type        = string
-  default     = "arn:aws:elasticloadbalancing:ap-northeast-2:201023212334:targetgroup/preto-streamlit-app-tg/3e75a65e5bbcaa20"
-}

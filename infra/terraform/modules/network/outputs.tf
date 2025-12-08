@@ -1,6 +1,7 @@
 # ========================================
 # Network 모듈 출력값
 # ========================================
+
 output "vpc_id" {
   description = "VPC ID"
   value       = data.aws_vpc.this.id
@@ -21,17 +22,25 @@ output "security_group_id" {
   value       = data.aws_security_group.this.id
 }
 
-output "security_group_name" {
-  description = "보안 그룹 이름"
-  value       = data.aws_security_group.this.name
+# ========================================
+# ALB 출력값
+# ========================================
+output "alb_arn" {
+  description = "ALB ARN"
+  value       = aws_lb.this.arn
+}
+
+output "alb_dns_name" {
+  description = "ALB DNS 이름 (애플리케이션 접속 URL)"
+  value       = aws_lb.this.dns_name
 }
 
 output "target_group_arn" {
   description = "Target Group ARN"
-  value       = data.aws_lb_target_group.this.arn
+  value       = aws_lb_target_group.this.arn
 }
 
 output "target_group_name" {
   description = "Target Group 이름"
-  value       = data.aws_lb_target_group.this.name
+  value       = aws_lb_target_group.this.name
 }

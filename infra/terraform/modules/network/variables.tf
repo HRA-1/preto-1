@@ -1,25 +1,41 @@
 # ========================================
 # Network 모듈 입력 변수
 # ========================================
-# 학습 포인트: Phase 2에서는 기존 인프라를 참조
-# Phase 3+에서 실제 VPC, ALB 등을 생성하는 코드로 확장 예정
 
 variable "vpc_id" {
-  description = "기존 VPC ID (data source 조회용)"
+  description = "VPC ID"
   type        = string
 }
 
 variable "subnet_ids" {
-  description = "기존 서브넷 ID 목록 (data source 조회용)"
+  description = "서브넷 ID 목록"
   type        = list(string)
 }
 
 variable "security_group_id" {
-  description = "기존 보안 그룹 ID (data source 조회용)"
+  description = "보안 그룹 ID"
   type        = string
 }
 
-variable "target_group_arn" {
-  description = "기존 Target Group ARN (data source 조회용)"
+variable "name_prefix" {
+  description = "리소스 이름 접두사"
   type        = string
+}
+
+variable "container_port" {
+  description = "컨테이너 포트 (Target Group 용)"
+  type        = number
+  default     = 8501
+}
+
+variable "health_check_path" {
+  description = "헬스체크 경로"
+  type        = string
+  default     = "/"
+}
+
+variable "tags" {
+  description = "리소스 태그"
+  type        = map(string)
+  default     = {}
 }

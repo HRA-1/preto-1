@@ -44,14 +44,18 @@ locals {
 # ========================================
 # Network 모듈
 # ========================================
-# 학습 포인트: 모듈을 사용하면 복잡한 네트워크 설정을 간단하게 참조
+# ALB와 Target Group을 생성
 module "network" {
   source = "../../modules/network"
 
   vpc_id            = var.vpc_id
   subnet_ids        = var.subnet_ids
   security_group_id = var.security_group_id
-  target_group_arn  = var.target_group_arn
+
+  name_prefix       = local.name_prefix
+  container_port    = var.container_port
+  health_check_path = "/"
+  tags              = local.common_tags
 }
 
 # ========================================
