@@ -2,7 +2,7 @@
 # Terraform 설정
 # ========================================
 terraform {
-  required_version = ">= 1.5.0, < 2.0.0"
+  required_version = ">= 1.10.0, < 2.0.0"  # S3 Native Locking 지원
 
   required_providers {
     aws = {
