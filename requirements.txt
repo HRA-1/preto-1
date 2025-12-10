@@ -9,3 +9,7 @@ seaborn
 faker
 boto3
 python-dotenv
+xgboost
+scikit-learn
+shap
+interpret
