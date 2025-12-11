@@ -13,3 +13,4 @@ xgboost
 scikit-learn
 shap
 interpret
+statsmodels
