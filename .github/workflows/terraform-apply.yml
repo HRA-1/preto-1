@@ -1,0 +1,56 @@
+# Terraform Apply - main 브랜치 푸시 시 실행
+# 인프라 변경사항을 자동으로 적용
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/terraform-apply.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-apply:
+    name: Apply (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}  # GitHub Environment 보호 규칙 적용
+
+    strategy:
+      matrix:
+        environment: [prod]
+      max-parallel: 1  # 순차 실행으로 안전성 확보
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      - name: Terraform Init
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform init -no-color
+
+      - name: Terraform Plan
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform Output
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform output -json
