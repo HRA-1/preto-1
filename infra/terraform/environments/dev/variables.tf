@@ -35,9 +35,9 @@ variable "image_tag_mutability" {
 }
 
 variable "ecr_lifecycle_count" {
-  description = "보존할 이미지 개수 (Dev는 더 많이 보존)"
+  description = "보존할 이미지 개수"
   type        = number
-  default     = 10 # Prod: 2, Dev: 10
+  default     = 3 # Prod: 2, Dev: 10
 }
 
 # ========================================
