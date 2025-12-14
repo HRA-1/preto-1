@@ -1,10 +1,11 @@
-# Docker Build & Deploy - 애플리케이션 코드 변경 시 실행
+# Docker Build & Deploy - PR merge 시 실행
 # ECR에 이미지 푸시 후 ECS 서비스 업데이트
 
 name: Build and Deploy
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [main]
     paths:
       - 'app/**'
@@ -23,6 +24,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.event.pull_request.merged == true
     name: Build and Push
     runs-on: ubuntu-latest
 

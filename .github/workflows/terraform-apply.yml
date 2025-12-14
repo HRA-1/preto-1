@@ -1,9 +1,10 @@
-# Terraform Apply - main 브랜치 푸시 시 실행
+# Terraform Apply - PR merge 시 실행
 # 인프라 변경사항을 자동으로 적용
 name: Terraform Apply
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [main]
     paths:
       - 'infra/terraform/**'
@@ -15,6 +16,7 @@ permissions:
 
 jobs:
   terraform-apply:
+    if: github.event.pull_request.merged == true
     name: Apply (${{ matrix.environment }})
     runs-on: ubuntu-latest
     environment: ${{ matrix.environment }}  # GitHub Environment 보호 규칙 적용
