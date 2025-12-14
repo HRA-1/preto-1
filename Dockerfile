@@ -17,8 +17,10 @@ WORKDIR /app
 # Copy requirements file
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+# Install dependencies (interpret without optional deps to avoid aplr build failure on ARM64)
+RUN grep -v "^interpret" requirements.txt > /tmp/requirements-base.txt && \
+    pip install --no-cache-dir -r /tmp/requirements-base.txt && \
+    pip install --no-cache-dir interpret --no-deps
 
 # Copy the rest of the application
 COPY . .
