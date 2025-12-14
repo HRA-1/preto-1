@@ -1,6 +1,5 @@
 # Docker Build & Deploy - PR merge 시 실행
 # ECR에 이미지 푸시 후 ECS 서비스 업데이트
-
 name: Build and Deploy
 
 on:
