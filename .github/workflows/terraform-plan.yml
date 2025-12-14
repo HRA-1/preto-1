@@ -1,0 +1,118 @@
+# Terraform Plan - PR 시 자동 실행
+# 인프라 변경사항을 PR에 코멘트로 표시
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/terraform-plan.yml'
+
+permissions:
+  id-token: write      # OIDC 토큰 발급
+  contents: read       # 코드 읽기
+  pull-requests: write # PR 코멘트 작성
+
+jobs:
+  terraform-plan:
+    name: Plan (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        environment: [dev, prod]
+      fail-fast: false  # 하나 실패해도 다른 환경 계속 실행
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      - name: Terraform Format Check
+        id: fmt
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform init -no-color
+
+      - name: Terraform Validate
+        id: validate
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: terraform plan -no-color -out=tfplan
+        continue-on-error: true
+
+      - name: Generate Plan Output
+        if: always()
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+        run: |
+          if [ -f tfplan ]; then
+            terraform show -no-color tfplan > plan_output.txt
+          else
+            echo "Plan failed - no output available" > plan_output.txt
+          fi
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planPath = 'infra/terraform/environments/${{ matrix.environment }}/plan_output.txt';
+            let plan = 'Plan output not available';
+
+            if (fs.existsSync(planPath)) {
+              plan = fs.readFileSync(planPath, 'utf8');
+              // Truncate if too long
+              if (plan.length > 60000) {
+                plan = plan.substring(0, 60000) + '\n... (truncated)';
+              }
+            }
+
+            const output = `### Terraform Plan - \`${{ matrix.environment }}\`
+
+            | Step | Status |
+            |------|--------|
+            | Format | ${{ steps.fmt.outcome == 'success' && '✅' || '❌' }} |
+            | Init | ${{ steps.init.outcome == 'success' && '✅' || '❌' }} |
+            | Validate | ${{ steps.validate.outcome == 'success' && '✅' || '❌' }} |
+            | Plan | ${{ steps.plan.outcome == 'success' && '✅' || '❌' }} |
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${plan}
+            \`\`\`
+
+            </details>
+
+            *Pushed by: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
